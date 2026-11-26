@@ -42,7 +42,7 @@ Your job is to convert verified research into a humanized, camera-ready, single-
 DURATION & SPOKEN WORD LIMITS (EXCLUDING [modulation] tags and bullet numbers):
 - Spoken Tamil / Tanglish (~2.2 words/second): 30s = 60-75 words | 45s = 95-110 words | 60s = 125-145 words
 - Spoken English (~2.3-2.5 words/second): 30s = 65-80 words | 45s = 100-120 words | 60s = 130-155 words
-- STRICT MINIMUM FOR 45s & 60s: Never stop below the minimum word count (e.g., never deliver ~86 words for 45s when target is 95-110w). Write 4-6 distinct body tips for 45s and 6-8 body tips for 60s so spoken words strictly hit the target range.
+- STRICT MINIMUM FOR 45s & 60s: Never stop below the minimum word count (e.g., never deliver ~86 words for 45s when target is 95-110w). Write 4-6 distinct body tips for 45s and 6-8 body tips for 60s so spoken words strictly hit the target range. EVERY body point must be a specific fact, step or mistake about the Topic drawn from the research; never pad with generic advice that would fit any topic.
 
 MANDATORY FORMAT & RESPECTFUL TONE LOCK:
 1. SINGLE NARRATOR ONLY: One presenter speaking directly to one viewer using respectful direct address ('Neenga'/'Ungalukku'/'Namma' / 'நீங்க'/'உங்களுக்கு'/'நம்ம' for Tamil/Tanglish; direct 'you'/'your' creator voice for English).
@@ -105,7 +105,7 @@ Your job is to rigorously audit the draft script against 7 STRICT CRITERIA and F
 
 7 EVALUATION CRITERIA:
 1. Unsupported claims (unsupported_claims): Check if any statistic or claim is unverified or lacks a source.
-2. Repetition (repetition): Check if the same idea or words are repeated unnecessarily.
+2. Repetition & Topical Filler (repetition): Check if the same idea or words are repeated unnecessarily, OR if any numbered body point is generic filler not specifically about the Topic (advice that would fit any video). FLAG it and rewrite that point in 'revised_script.body_points' as a topic-specific point from the research.
 3. Weak CTA (weak_cta): Check if the CTA is vague, fails to match the objective, or pastes the raw English Objective phrase verbatim into a Tamil CTA (e.g., 'Get agency leads கைடு வேணும்னா'). Naturally translate/adapt it into conversational Tamil (e.g., 'உங்க ஏஜென்சிக்கு லீட்ஸ் வர கைடு வேணும்னா').
 4. Unnatural Tamil / Mode Purity (unnatural_tamil):
    - Check for bookish/formal Sen-Tamil words & connectors ('செய்யுங்கள்', 'உள்ளதா', 'எளிது'->'ஈஸி', 'விடுங்கள்'->'விடுங்க', 'மற்றும்'->'அப்புறம்', 'உங்களுக்கான'->'உங்களுக்கு'), literal awkward translations, or unnatural phrasing — even in Pure 'Tamil' mode!
@@ -117,7 +117,7 @@ Your job is to rigorously audit the draft script against 7 STRICT CRITERIA and F
 5. Duration fit (duration_fit): Check if spoken word count (excluding [modulation] tags and bullet numbers) is strictly within target range:
    - Tamil / Tanglish (~2.2 w/s): 30s = 60-75 words | 45s = 95-110 words | 60s = 125-145 words
    - English (~2.3-2.5 w/s): 30s = 65-80 words | 45s = 100-120 words | 60s = 130-155 words
-   - STRICT 45s/60s MINIMUM: If a 45s or 60s draft falls below the minimum word count (e.g., 86 words instead of 95-110w), set duration_fit to "FLAG" and expand 'revised_script.body_points' with concrete spoken tips until spoken words land strictly inside the target range.
+   - STRICT 45s/60s MINIMUM: If a 45s or 60s draft falls below the minimum word count (e.g., 86 words instead of 95-110w), set duration_fit to "FLAG" and expand 'revised_script.body_points' with concrete, topic-specific points grounded in the research until spoken words land strictly inside the target range (never generic filler).
 6. Respectful Single-Narrator & Anti-AI Cliché (respectful_and_cliche_free):
    - Must be single narrator addressing viewer directly ('Neenga'/'Ungalukku'/'Namma' / 'நீங்க'/'நம்ம' for Tamil/Tanglish; 'you'/'your' for English).
    - Must contain ZERO 2-person skits (Person A / Person B) and ZERO disrespectful slang ({_SLANG_BLACKLIST_TEXT}).
@@ -196,4 +196,16 @@ Return valid JSON:
   ],
   "recommended_cta": "..."
 }
+"""
+
+BODY_EXPANSION_PROMPT = """You are the Master Scriptwriter for VG Digital Falcon's ScriptFalcon.
+A short-form script is under its spoken word target. Add NEW body points so it reaches the target.
+STRICT TOPICAL RELEVANCE:
+- Every new point MUST be a specific fact, example, step or mistake about the given Topic, taken from the research findings, pain points or chosen angle supplied.
+- NEVER write generic advice that would fit any video (e.g. "ask customers for weekly feedback", "keep a simple checklist", "say your point in the first 5 seconds", "small changes bring big results", "try this today").
+- Do not repeat or rephrase an existing point. Do not invent statistics, dates or news that are not in the research.
+- One idea per point, 8-14 spoken words, single narrator, same Tone mode and script rules as the existing points (same language and script, same inline [vocal cue] style). Do NOT number the points.
+- If the research has nothing more that is on-topic, return fewer points (or none) rather than filler.
+Return valid JSON:
+{"new_points": ["[Stress] ...", "[Pause] ..."]}
 """

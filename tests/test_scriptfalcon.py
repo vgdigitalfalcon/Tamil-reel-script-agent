@@ -1002,8 +1002,20 @@ def test_45s_60s_word_minimum_expansion_and_sen_tamil_ban():
         "விடுங்கள்",
     }
 
-    with patch.object(sim_llm, "generate_json", return_value=no_op_qc_resp):
+    # The expansion call returns one stock filler line (must be rejected) plus on-topic points.
+    expansion_45 = {
+        "new_points": [
+            "[Pause] இன்னைக்கே இதை ட்ரை பண்ணுங்க.",
+            "[Stress] கிளினிக் வெப்சைட்ல அப்பாயிண்ட்மெண்ட் புக் பண்ற பட்டன் முதல் பார்வையிலேயே தெரியணும்.",
+            "[Pause] நோயாளிகள் போடுற கூகுள் ரிவ்யூக்கு கிளினிக் சார்பா மரியாதையா பதில் சொல்லுங்க.",
+            "[Slow down] டாக்டர் பேரும் படிப்பும் போட்டோவோட வெப்சைட்ல இருந்தா நம்பிக்கை உடனே கூடும்.",
+        ]
+    }
+    with patch.object(
+        sim_llm, "generate_json", side_effect=[no_op_qc_resp, expansion_45]
+    ):
         qc_45, rev_45 = qa.execute(inp_45, res, underlength_45_draft)
+    assert not any("ட்ரை பண்ணுங்க" in p for p in rev_45.body_points)
 
     assert 95 <= rev_45.word_count <= 110
     assert qc_45.duration_fit.status == "PASS"
@@ -1031,7 +1043,19 @@ def test_45s_60s_word_minimum_expansion_and_sen_tamil_ban():
         cta="[Direct eye contact] Property site visit book panna 'VISIT' nu DM pannunga!",
     )
     assert underlength_60_draft.word_count < 125
-    with patch.object(sim_llm, "generate_json", return_value=no_op_qc_resp):
+    expansion_60 = {
+        "new_points": [
+            "[Stress] Property photos natural light-la eduthaa buyers screen-la stop panni paarpaanga.",
+            "[Pause] Price range-ah listing-la mudhalaye sonna time waste panra inquiries kammi aagum.",
+            "[Slow down] Nearby school, hospital, metro distance-ah map-oda kaatunga, families udane interest kaatuvanga.",
+            "[Curious tone] Site visit slots-ah WhatsApp-la direct book panna link kudunga, follow-up easy aagum.",
+            "[Stress] Old buyers-oda video testimonial podunga, pudhu buyers-ku trust seekiram varum.",
+            "[Pause] RERA number-ah ovvoru post-layum podunga, fake listing bayam pogum.",
+        ]
+    }
+    with patch.object(
+        sim_llm, "generate_json", side_effect=[no_op_qc_resp, expansion_60]
+    ):
         qc_60, rev_60 = qa.execute(inp_60, res, underlength_60_draft)
 
     assert 125 <= rev_60.word_count <= 145

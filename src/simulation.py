@@ -508,7 +508,6 @@ class SimulationProvider:
 
         tone_lower = inp.tone.strip().lower()
         is_english = tone_lower == "english"
-        is_tanglish = "tanglish" in tone_lower
         if len(draft.extract_modulation_cues()) < 2:
             if (
                 "[Direct eye contact]" not in revised["hook"]
@@ -522,31 +521,12 @@ class SimulationProvider:
             )
 
         if actual_words < limits["min"]:
-            if is_english:
-                filler_pool = [
-                    "[Slow down] You can fix this in minutes once you keep your weekly review simple and steady.",
-                    "[Pause] Real audience trust builds naturally when every short video answers one specific buyer question clearly.",
-                ]
-            elif is_tanglish:
-                filler_pool = [
-                    "[Slow down] Idhai neenga easy-ah correct pannalam, weekly track panni consistent-ah follow pannunga.",
-                    "[Pause] Namma regular-ah review panna mattumae customer trust and inquiry steady-ah grow aagum.",
-                ]
-            else:
-                filler_pool = [
-                    "[Slow down] இதை நீங்க ஈஸியா சரிசெய்யலாம், வாராவாரம் ட்ராக் பண்ணி கரெக்டா ஃபாலோ பண்ணுங்க.",
-                    "[Pause] நம்ம தொடர்ந்து ரிவ்யூ பண்ணும்போதுதான் கஸ்டமர் நம்பிக்கையும் விசாரணையும் சீரா உயரும்.",
-                ]
-            temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
-            idx = 0
-            while temp_draft.word_count < limits["min"] and idx < len(filler_pool):
-                revised["body_points"].append(filler_pool[idx])
-                temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
-                idx += 1
-            fixes.append(
-                f"Auto-expanded script to hit calibrated duration limit ({limits['min']}-{limits['max']} words)."
+            # Offline fallback: never pad with stock advice that is not about the topic.
+            # The quality agent adds research-backed points instead, or flags the shortfall.
+            duration_note = (
+                f"Word count ({actual_words}w) is below the {limits['min']}-{limits['max']}w target; "
+                "no generic filler added."
             )
-            duration_note = f"Word count ({actual_words}w) auto-expanded to {temp_draft.word_count}w within {limits['min']}-{limits['max']}w limit."
         elif actual_words > limits["max"]:
             # Trim excess body points if over the duration word window
             temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})

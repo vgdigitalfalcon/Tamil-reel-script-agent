@@ -323,3 +323,91 @@ def test_markdown_export_shows_live_data_warning():
             _crm_input("current week tech news")
         )
     assert LIVE_DATA_WARNING in deliverable.to_markdown()
+
+
+# --- 45s/60s padding must stay on topic ------------------------------------------------
+
+
+def _short_45s_tanglish(topic="Clinic Google reviews"):
+    from src.models import ScriptDraft, ScriptInput
+
+    inp = ScriptInput.create_with_defaults(topic=topic, tone="Tanglish", duration=45)
+    draft = ScriptDraft(
+        hook="[Direct eye contact] Unga clinic Google reviews-ah yaarum paakurdhillaya?",
+        context="[Pause] Patients first reviews dhaan paarpaanga.",
+        body_points=["1. [Stress] Ovvoru review-kum reply pannunga."],
+        engagement="[Question tone] Neenga reply pannuveengala?",
+        cta="[Direct eye contact] 'REVIEW' nu DM pannunga.",
+    )
+    return inp, draft
+
+
+_NO_OP_QC = {"checks": {}, "fixes_applied": [], "revised_script": None}
+
+
+def test_short_script_is_flagged_not_padded_when_no_on_topic_points():
+    from src.agents.quality_agent import QualityAgent
+    from src.models import ResearchResult
+
+    llm = LLMClient(provider="simulation")
+    inp, draft = _short_45s_tanglish()
+    before = list(draft.body_points)
+    stock = {
+        "new_points": [
+            "[Slow down] Oru simple checklist vachu ovvoru step-ah regular-ah follow pannunga.",
+            "[Pause] Chinna change kooda nalla results tharum, innaike start pannunga.",
+            "[Pause] Innaike idhai try pannunga.",
+        ]
+    }
+    with patch.object(llm, "generate_json", side_effect=[_NO_OP_QC, stock]):
+        qc, revised = QualityAgent(llm).execute(
+            inp, ResearchResult(topic=inp.topic), draft
+        )
+    assert revised.body_points == before  # every stock line rejected
+    assert qc.duration_fit.status == "FLAG"
+    assert "No generic filler" in qc.duration_fit.notes
+
+
+def test_expansion_prompt_is_grounded_in_topic_research_and_usage_is_billed():
+    from src.agents.quality_agent import QualityAgent
+    from src.models import ResearchResult
+
+    llm = LLMClient(provider="simulation")
+    inp, draft = _short_45s_tanglish()
+    research = ResearchResult(
+        topic=inp.topic,
+        key_findings=["Most patients read at least 3 reviews before booking."],
+        chosen_angle="Replying to reviews builds trust",
+    )
+    prompts = []
+
+    def fake(*args, **kwargs):
+        prompts.append(kwargs["user_prompt"])
+        llm.last_usage = {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+            "cost_inr": 0.01,
+        }
+        return _NO_OP_QC if len(prompts) == 1 else {"new_points": []}
+
+    agent = QualityAgent(llm)
+    with patch.object(llm, "generate_json", side_effect=fake):
+        agent.execute(inp, research, draft)
+    expansion_prompt = prompts[1]
+    assert "Topic: Clinic Google reviews" in expansion_prompt
+    assert "Most patients read at least 3 reviews" in expansion_prompt
+    assert (
+        "Ovvoru review-kum reply pannunga" in expansion_prompt
+    )  # existing points, no repeats
+    assert agent.last_usage["total_tokens"] == 300  # both calls counted
+
+
+def test_generic_filler_detector_respects_topic():
+    from src.agents.quality_agent import is_generic_filler
+
+    line = (
+        "[Slow down] Keep a short weekly checklist so your next post stays consistent."
+    )
+    assert is_generic_filler(line, "Why websites fail to get leads")
+    assert not is_generic_filler(line, "Clinic opening checklist for new doctors")

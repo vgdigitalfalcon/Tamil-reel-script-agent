@@ -10,6 +10,7 @@ from src.config import (
     ENGLISH_ADDRESS_MARKERS,
     ENGLISH_CORPORATE_JARGON,
     MAX_OUTPUT_TOKENS,
+    REGENERATION_MAX_OUTPUT_TOKENS,
     RESPECTFUL_ADDRESS_MARKERS,
     TWO_PERSON_SKIT_MARKERS,
     VOCAL_MODULATION_MARKERS,
@@ -23,7 +24,7 @@ from src.models import (
     ScriptDraft,
     ScriptInput,
 )
-from src.prompts import QUALITY_CHECK_SYSTEM_PROMPT
+from src.prompts import BODY_EXPANSION_PROMPT, QUALITY_CHECK_SYSTEM_PROMPT
 from src.simulation import SimulationProvider, adapt_objective_to_conversational_tamil
 
 logger = logging.getLogger(__name__)
@@ -1185,90 +1186,61 @@ def _count_tip_spoken_words(tip: str) -> int:
     )
 
 
-def _enforce_45s_60s_word_minimum(
-    updated_draft: ScriptDraft,
-    inp: ScriptInput,
-    fixes_applied: List[str],
-) -> Optional[str]:
-    """Ensure 45s and 60s scripts meet their strict minimum spoken word count by expanding body_points."""
-    if inp.duration not in (45, 60):
-        return None
-    limits = get_word_count_limits(inp.duration, inp.tone)
-    before_wc = updated_draft.word_count
-    if before_wc >= limits["min"]:
-        return None
+# Advice that fits any video. Rejected when padding a script unless the topic itself is about it.
+_GENERIC_FILLER_RE = re.compile(
+    r"weekly feedback|feedback kettu|ஃபீட்பேக் கேட்டு|checklist|செக்லிஸ்ட்|"
+    r"first (?:5|five) seconds|5 seconds-la|அஞ்சு செகண்ட்|"
+    r"try (?:this|it) today|idhai try pannunga|இதை ட்ரை பண்ணுங்க|"
+    r"small (?:steady )?(?:tweaks|changes?)|chinna change kooda|சின்ன மாற்றம் கூட",
+    re.IGNORECASE,
+)
 
-    tone_lower = (inp.tone or "").strip().lower()
-    if tone_lower == "english":
-        tip_pool = [
-            "[Slow down] Ask your existing customers for quick feedback each week so you improve what actually matters.",
-            "[Pause] Keep doing what brings real replies, and cut out extra steps that waste your time.",
-            "[Stress] Say your main point in the first five seconds so viewers stay until the end.",
-            "[Curious tone] Answer one common question directly in every reel, because clear help builds trust fast.",
-            "[Slow down] Keep a short weekly checklist so your next post stays consistent.",
-            "[Pause] Small steady tweaks bring better results once you start tracking today.",
-            "[Stress] Review your replies weekly before making your next move.",
-            "[Pause] Try this simple change today.",
-        ]
-    elif "tanglish" in tone_lower:
-        tip_pool = [
-            "[Slow down] Unga old customers kitta weekly feedback kettu chinna changes panna kooda periya growth varum.",
-            "[Pause] Edhu nalla work aagudho adhai mattum continue pannunga, thevai illadha steps-ah dhairiyama vidunga.",
-            "[Stress] First 5 seconds-laye unga point-ah clear-ah sonna dhaan viewers last varaikkum paarpaanga.",
-            "[Curious tone] Customers kekura chinna doubts-kum direct-ah badhil kudutha trust easy-ah build aagum.",
-            "[Slow down] Oru simple checklist vachu ovvoru step-ah regular-ah follow pannunga.",
-            "[Pause] Chinna change kooda nalla results tharum, innaike start pannunga.",
-            "[Stress] Weekly results check panni next step edunga.",
-            "[Pause] Innaike idhai try pannunga.",
-        ]
-    else:
-        tip_pool = [
-            "[Slow down] உங்க பழைய கஸ்டமர் கிட்ட வாராவாரம் ஃபீட்பேக் கேட்டு சின்ன மாற்றம் பண்ணா கூட பெரிய வளர்ச்சி வரும்.",
-            "[Pause] எது நல்லா ஒர்க் ஆகுதோ அதை மட்டும் தொடர்ந்து பண்ணுங்க, தேவையில்லாத விஷயங்களை தைரியமா விடுங்க.",
-            "[Stress] முதல் அஞ்சு செகண்ட்லயே உங்க பாயிண்ட்டை தெளிவா சொன்னாதான் பாக்குறவங்க கடைசி வரைக்கும் நிப்பாங்க.",
-            "[Curious tone] மக்கள் கேட்குற சின்ன சந்தேகங்களுக்கு கூட நேரடியா பதில் குடுத்தா நம்பிக்கை ஈஸியா வளரும்.",
-            "[Slow down] ஒரு எளிய செக்லிஸ்ட் வச்சு ஒவ்வொரு ஸ்டெப்பா கரெக்டா ஃபாலோ பண்ணுங்க.",
-            "[Pause] சின்ன மாற்றம் கூட பெரிய ரிசல்ட்ஸ் தரும், இன்னைக்கே ஆரம்பிங்க.",
-            "[Stress] வாராவாரம் ரிசல்ட்ஸ் செக் பண்ணி அடுத்த ஸ்டெப் எடுங்க.",
-            "[Pause] இன்னைக்கே இதை ட்ரை பண்ணுங்க.",
-        ]
 
-    used_indices = set()
-    existing_joined = " ".join(updated_draft.body_points).lower()
-    while updated_draft.word_count < limits["min"]:
-        current_wc = updated_draft.word_count
-        headroom = limits["max"] - current_wc
-        chosen_idx = None
-        for idx, tip in enumerate(tip_pool):
-            if idx in used_indices:
-                continue
-            if tip.lower()[:24] in existing_joined:
-                continue
-            if _count_tip_spoken_words(tip) <= headroom:
-                chosen_idx = idx
-                break
-        if chosen_idx is None:
-            # Pick shortest unused tip if remaining headroom is tight
-            remaining = [
-                (idx, _count_tip_spoken_words(tip))
-                for idx, tip in enumerate(tip_pool)
-                if idx not in used_indices
-            ]
-            if not remaining:
-                break
-            chosen_idx = min(remaining, key=lambda pair: pair[1])[0]
+def is_generic_filler(point: str, topic: str) -> bool:
+    """True for stock advice that is not about the topic (e.g. 'keep a weekly checklist')."""
+    match = _GENERIC_FILLER_RE.search(point or "")
+    return bool(match) and match.group(0).lower() not in (topic or "").lower()
 
-        used_indices.add(chosen_idx)
-        next_num = len(updated_draft.body_points) + 1
-        updated_draft.body_points.append(f"{next_num}. {tip_pool[chosen_idx]}")
-        if updated_draft.word_count >= limits["max"]:
+
+def _append_topical_points(
+    draft: ScriptDraft, inp: ScriptInput, new_points: List[Any], limits: Dict[str, int]
+) -> int:
+    """Append on-topic points until the minimum is met; skip filler, repeats and overflow."""
+    existing = " ".join(draft.body_points).lower()
+    added = 0
+    for raw in new_points:
+        if draft.word_count >= limits["min"]:
             break
+        if not isinstance(raw, str):
+            continue
+        text = re.sub(r"^\s*\d+[.)]\s*", "", raw).strip()
+        if not text or is_generic_filler(text, inp.topic):
+            continue
+        key = re.sub(r"\[[^\]]+\]", "", text).strip().lower()[:24]
+        if key and key in existing:
+            continue
+        if draft.word_count + _count_tip_spoken_words(text) > limits["max"]:
+            continue
+        draft.body_points.append(f"{len(draft.body_points) + 1}. {text}")
+        existing += " " + text.lower()
+        added += 1
+    return added
 
-    after_wc = updated_draft.word_count
-    fixes_applied.append(
-        f"Auto-expanded body tips from {before_wc}w to {after_wc}w to meet {inp.duration}s target ({limits['min']}-{limits['max']}w)."
+
+def _merge_usage(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
+    """Add the token and cost counters of a second LLM call to the first."""
+    if not second:
+        return dict(first or {})
+    merged = dict(first or {})
+    for key in ("input_tokens", "output_tokens", "total_tokens"):
+        merged[key] = int(merged.get(key, 0) or 0) + int(second.get(key, 0) or 0)
+    merged["cost_inr"] = round(
+        float(merged.get("cost_inr", 0.0) or 0.0)
+        + float(second.get("cost_inr", 0.0) or 0.0),
+        4,
     )
-    return f"Expanded body tips from {before_wc}w to {after_wc}w within {limits['min']}-{limits['max']}w range."
+    merged["model_used"] = merged.get("model_used") or second.get("model_used", "")
+    return merged
 
 
 class QualityAgent:
@@ -1277,6 +1249,79 @@ class QualityAgent:
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
         self.last_usage: Dict[str, Any] = {}
+
+    def _expand_body_on_topic(
+        self,
+        inp: ScriptInput,
+        research: ResearchResult,
+        draft: ScriptDraft,
+        fixes_applied: List[str],
+    ) -> Optional[str]:
+        """Bring a short 45s/60s script up to its minimum with research-backed, on-topic points.
+
+        Never pads with stock advice: if the model has nothing more on-topic to add, the
+        script stays short and duration_fit is flagged instead.
+        """
+        if inp.duration not in (45, 60):
+            return None
+        limits = get_word_count_limits(inp.duration, inp.tone)
+        before_wc = draft.word_count
+        if before_wc >= limits["min"]:
+            return None
+
+        newline = chr(10)
+        user_prompt = f"""Topic: {inp.topic}
+Tone / Language Mode: {inp.tone}
+Spoken words now: {before_wc}. Add about {limits["min"] - before_wc}-{limits["max"] - before_wc} spoken words in total (target {limits["min"]}-{limits["max"]}).
+
+CHOSEN ANGLE: {research.chosen_angle}
+
+RESEARCH FINDINGS:
+{newline.join(f"- {f}" for f in research.key_findings) or "- (none)"}
+
+PAIN POINTS:
+{newline.join(f"- {p}" for p in research.pain_points) or "- (none)"}
+
+EXISTING BODY POINTS (do not repeat):
+{newline.join(draft.body_points)}
+"""
+        # Offline fallback: research lines are on-topic but written in English, so only
+        # English scripts can reuse them; other tones stay short and get flagged.
+        cues = ("[Stress]", "[Pause]", "[Slow down]", "[Curious tone]")
+        fallback_points = (
+            [
+                f"{cues[i % len(cues)]} {line.strip()}"
+                for i, line in enumerate(research.key_findings + research.pain_points)
+                if line and line.strip()
+            ]
+            if (inp.tone or "").strip() == "English"
+            else []
+        )
+        self.llm.last_usage = {}
+        data = self.llm.generate_json(
+            system_prompt=BODY_EXPANSION_PROMPT,
+            user_prompt=user_prompt,
+            default_fallback={"new_points": fallback_points},
+            max_output_tokens=REGENERATION_MAX_OUTPUT_TOKENS,
+        )
+        self.last_usage = _merge_usage(
+            self.last_usage, dict(getattr(self.llm, "last_usage", {}) or {})
+        )
+        new_points = data.get("new_points") if isinstance(data, dict) else None
+        added = _append_topical_points(draft, inp, new_points or [], limits)
+
+        after_wc = draft.word_count
+        range_text = f"{limits['min']}-{limits['max']}w"
+        if added:
+            fixes_applied.append(
+                f"Added {added} topic-specific body point(s) from research: {before_wc}w -> {after_wc}w (target {range_text})."
+            )
+        if after_wc < limits["min"]:
+            return (
+                f"Under target: {after_wc}w vs {range_text} for {inp.duration}s. No generic filler "
+                "was added; add more on-topic points or pick a shorter duration."
+            )
+        return f"Expanded with on-topic research points from {before_wc}w to {after_wc}w within {range_text}."
 
     def execute(
         self, inp: ScriptInput, research: ResearchResult, draft: ScriptDraft
@@ -1465,13 +1510,13 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
             updated_draft.engagement = repair_tamil_splits(updated_draft.engagement)
             updated_draft.cta = repair_tamil_splits(updated_draft.cta)
 
+        # 45s/60s minimum: add research-backed, on-topic points only (before cleanup so they get it too)
+        duration_expanded_note = self._expand_body_on_topic(
+            inp, research, updated_draft, fixes_applied
+        )
+
         # Final deterministic mode purity cleanup (hybrid suffixes, Tanglish slips, Pure Tamil transliteration, Sen-Tamil)
         c4_flag_note = _apply_mode_post_cleanup(updated_draft, inp, fixes_applied)
-
-        # Deterministic Step 3 minimum word-count enforcement for 45s & 60s scripts
-        duration_expanded_note = _enforce_45s_60s_word_minimum(
-            updated_draft, inp, fixes_applied
-        )
 
         # Post-audit deterministic verification
         post_audit = run_deterministic_audit(updated_draft, inp)

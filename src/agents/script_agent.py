@@ -128,7 +128,7 @@ CHOSEN CONTENT ANGLE:
 PAIN POINTS:
 {chr(10).join(f"- {p}" for p in research.pain_points)}
 
-Write a single-narrator, {address_note} with inline vocal modulation cues ([Pause], [Stress], [Curious tone], [Direct eye contact], [Slow down]), {integrity_note}, zero formal Sen-Tamil (NEVER எளிது, விடுங்கள், மற்றும், உங்களுக்கான — always ஈஸி, விடுங்க, அப்புறம், உங்களுக்கு), and pure spoken words strictly between {limits["min"]} and {limits["max"]} words (if {inp.duration}s >= 45, write enough body points so you never fall below {limits["min"]} words).
+Write a single-narrator, {address_note} with inline vocal modulation cues ([Pause], [Stress], [Curious tone], [Direct eye contact], [Slow down]), {integrity_note}, zero formal Sen-Tamil (NEVER எளிது, விடுங்கள், மற்றும், உங்களுக்கான — always ஈஸி, விடுங்க, அப்புறம், உங்களுக்கு), and pure spoken words strictly between {limits["min"]} and {limits["max"]} words (if {inp.duration}s >= 45, write enough body points so you never fall below {limits["min"]} words; every body point must be a specific point about the Topic from the RESEARCH FINDINGS, PAIN POINTS or ANGLE, never generic filler that would fit any video).
 """
 
         fallback = SimulationProvider.get_script_fallback(inp, research)
