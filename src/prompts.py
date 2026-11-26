@@ -67,11 +67,16 @@ MANDATORY FORMAT & RESPECTFUL TONE LOCK:
      * Keep sentences short and punchy (8-12 words max per breath), calibrated at ~2.3-2.5 words/sec, with inline vocal modulation cues ([Pause], [Stress], [Direct eye contact], [Slow down]).
      * STRICT ANTI-AI CLICHÉ & ANTI-JARGON RULE: ZERO robotic AI buzzwords ("In today's fast-paced digital world", "game-changer", "unlock your potential", "delve into", "dive deep", "elevate your brand") and ZERO corporate jargon ("synergy", "holistic approach", "value proposition", "streamline your workflow").
 8. TAMIL WORD INTEGRITY: Complete every Tamil Unicode word cleanly with proper spacing. Never split compound Tamil letters or uyirmei vowel signs across spaces or cut mid-word.
-9. STRUCTURE & ACTION:
+9. VALUE-FIRST SUBSTANCE (HARD RULE):
+   - The Hook, Context and Body MUST deliver real information about the Topic itself: every numbered Body point states a specific fact, real example, named tool/company/product, number from the research, or a concrete actionable step that directly answers the Topic.
+   - For news/current-events topics, every Body point is one actual news item from the RESEARCH FINDINGS (what happened, who, why it matters).
+   - BANNED in Hook/Context/Body: meta-teasers and pitch lines ("we will teach you", "naanga guide tharrom", "solli tharrom", "DM pannunga", "link in bio", "comment pannunga", "follow pannunga"), rhetorical filler questions with no information ("padika asadhyama irukka?"), and any mention of the Conversion Objective, our agency, or our services.
+   - The Conversion Objective appears ONLY in the CTA.
+10. STRUCTURE & ACTION:
    - Script MUST have: [Hook] -> [Context] -> [Body] -> [Engagement] -> [CTA].
    - Body: 3-5 concise points. One idea per line. No repetition.
    - Engagement: 1 natural question or comment prompt.
-   - CTA: Must be specific and match the objective (e.g., "Free audit-ku 'AUDIT' nu DM pannunga"), NEVER vague ("follow pannunga").
+   - CTA: The ONLY place for the Conversion Objective. Must be specific and match the objective (e.g., "Free audit-ku 'AUDIT' nu DM pannunga"), NEVER vague ("follow pannunga").
    - NATURAL TAMIL CTA PHRASING: When Tone is 'Tamil' or 'conversational spoken Tamil', NEVER paste the raw English Objective phrase verbatim before Tamil CTA words (e.g., NEVER write "Get agency leads கைடு வேணும்னா"). Always naturally translate or adapt the objective into conversational spoken Tamil (e.g., "உங்க ஏஜென்சிக்கு லீட்ஸ் வர கைடு வேணும்னா 'REEL'-னு மெசேஜ் அனுப்புங்க").
    - NO fake guarantees ("1st rank guaranteed", "100% job guaranteed"). NO fake urgency.
    - Respect all Client Brand DNA forbidden words and brand tone if provided.
@@ -106,7 +111,7 @@ Your job is to rigorously audit the draft script against 7 STRICT CRITERIA and F
 7 EVALUATION CRITERIA:
 1. Unsupported claims (unsupported_claims): Check if any statistic or claim is unverified or lacks a source.
 2. Repetition & Topical Filler (repetition): Check if the same idea or words are repeated unnecessarily, OR if any numbered body point is generic filler not specifically about the Topic (advice that would fit any video). FLAG it and rewrite that point in 'revised_script.body_points' as a topic-specific point from the research.
-3. Weak CTA (weak_cta): Check if the CTA is vague, fails to match the objective, or pastes the raw English Objective phrase verbatim into a Tamil CTA (e.g., 'Get agency leads கைடு வேணும்னா'). Naturally translate/adapt it into conversational Tamil (e.g., 'உங்க ஏஜென்சிக்கு லீட்ஸ் வர கைடு வேணும்னா').
+3. Weak CTA & Objective Bleed (weak_cta): The CTA MUST carry the Conversion Objective — never remove the objective from the CTA or replace it with a generic 'follow' line. FLAG only if the Hook/Context/Body pitch the objective or contain teasers ('we will teach you', 'naanga guide tharrom', 'DM pannunga') instead of real topic information, and rewrite those lines as concrete topic facts/steps from the research. Also check if the CTA is vague, fails to match the objective, or pastes the raw English Objective phrase verbatim into a Tamil CTA (e.g., 'Get agency leads கைடு வேணும்னா'). Naturally translate/adapt it into conversational Tamil (e.g., 'உங்க ஏஜென்சிக்கு லீட்ஸ் வர கைடு வேணும்னா').
 4. Unnatural Tamil / Mode Purity (unnatural_tamil):
    - Check for bookish/formal Sen-Tamil words & connectors ('செய்யுங்கள்', 'உள்ளதா', 'எளிது'->'ஈஸி', 'விடுங்கள்'->'விடுங்க', 'மற்றும்'->'அப்புறம்', 'உங்களுக்கான'->'உங்களுக்கு'), literal awkward translations, or unnatural phrasing — even in Pure 'Tamil' mode!
    - In BOTH 'Tamil' and 'conversational spoken Tamil' modes, NEVER leave Tamil words in English/Roman letters (e.g., namma -> நம்ம, unga -> உங்க, neenga -> நீங்க, pannunga -> பண்ணுங்க, venumna -> வேணும்னா). All Tamil words MUST be in Tamil script.
@@ -128,7 +133,7 @@ Your job is to rigorously audit the draft script against 7 STRICT CRITERIA and F
    - Verify inline vocal modulation cues ({_MODULATION_EXAMPLES}) are present so the delivery sounds natural.
 
 CRITICAL SELF-CORRECTION RULE:
-If ANY of the 7 checks fails, set its status strictly to "FLAG" (NEVER "FAIL") and rewrite the defective script segments in 'revised_script' so every criterion passes cleanly while preserving the user's Topic (never reframe it into the client's industry), the research and Brand DNA, and log every correction in 'fixes_applied'. Use ONLY "PASS" or "FLAG" for every status field.
+NEVER change the script language/alphabet of the Tone mode in revised_script (Tanglish and English stay in Roman letters). If ANY of the 7 checks fails, set its status strictly to "FLAG" (NEVER "FAIL") and rewrite the defective script segments in 'revised_script' so every criterion passes cleanly while preserving the user's Topic (never reframe it into the client's industry), the research and Brand DNA, and log every correction in 'fixes_applied'. Use ONLY "PASS" or "FLAG" for every status field.
 
 Output strictly valid JSON with this schema:
 {{
@@ -201,7 +206,7 @@ Return valid JSON:
 BODY_EXPANSION_PROMPT = """You are the Master Scriptwriter for VG Digital Falcon's ScriptFalcon.
 A short-form script is under its spoken word target. Add NEW body points so it reaches the target.
 STRICT TOPICAL RELEVANCE:
-- Every new point MUST be a specific fact, example, step or mistake about the given Topic, taken from the research findings, pain points or chosen angle supplied.
+- Every new point MUST be a specific fact, example, step or mistake about the given Topic (never a teaser, a pitch for our services, or the conversion objective), taken from the research findings, pain points or chosen angle supplied.
 - NEVER write generic advice that would fit any video (e.g. "ask customers for weekly feedback", "keep a simple checklist", "say your point in the first 5 seconds", "small changes bring big results", "try this today").
 - Do not repeat or rephrase an existing point. Do not invent statistics, dates or news that are not in the research.
 - One idea per point, 8-14 spoken words, single narrator, same Tone mode and script rules as the existing points (same language and script, same inline [vocal cue] style). Do NOT number the points.

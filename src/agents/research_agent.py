@@ -147,6 +147,8 @@ class ResearchAgent:
         recency_rule = (
             f"TIME-SENSITIVE TOPIC (today is {date.today().isoformat()}): use ONLY facts that "
             "appear in the live results below. Never fill gaps with remembered or older events. "
+            "Each key finding must be ONE concrete news item: what happened, who/which company, "
+            "and when or which outlet (from the snippet's [source | date]). "
             "If the results contain nothing current, say so in uncertainties.\n"
             if time_sensitive
             else ""
@@ -210,7 +212,11 @@ Please analyze these results, extract everyday spoken audience pain points (no c
         """Synchronously run web searches, optional reference URL fetch, and LLM synthesis."""
         queries = self._generate_search_queries(inp)
         raw_results = run_research_queries(
-            queries, max_per_query=3, timelimit=self._timelimit(inp)
+            queries,
+            max_per_query=3,
+            timelimit=self._timelimit(inp),
+            news=is_time_sensitive_topic(inp.topic),
+            topic=inp.topic,
         )
         ref_item = fetch_reference_url(inp.reference_url) if inp.reference_url else None
         return self._build_research_result(inp, queries, raw_results, ref_item)
@@ -219,7 +225,11 @@ Please analyze these results, extract everyday spoken audience pain points (no c
         """Non-blocking async research execution offloading search & LLM calls off the event loop."""
         queries = self._generate_search_queries(inp)
         search_coro = async_run_research_queries(
-            queries, max_per_query=3, timelimit=self._timelimit(inp)
+            queries,
+            max_per_query=3,
+            timelimit=self._timelimit(inp),
+            news=is_time_sensitive_topic(inp.topic),
+            topic=inp.topic,
         )
         if inp.reference_url:
             raw_results, ref_item = await asyncio.gather(

@@ -951,6 +951,54 @@ def normalize_modulation_cues(text: str) -> Tuple[str, List[str]]:
     return result, changed
 
 
+def tamil_script_ratio(text: str) -> float:
+    """Share of word characters written in Tamil Unicode (0.0 = all Roman, 1.0 = all Tamil)."""
+    tamil = len(re.findall(r"[\u0B80-\u0BFF]", text or ""))
+    total = len(re.findall(r"\w", text or "", flags=re.UNICODE))
+    return tamil / total if total else 0.0
+
+
+def is_wrong_script(text: str, tone: str) -> bool:
+    """Tanglish and English scripts must be in Roman letters; flag mostly-Tamil-script text."""
+    return (tone or "").strip() in ("Tanglish", "English") and tamil_script_ratio(
+        text
+    ) > 0.3
+
+
+# Pitch / teaser lines that belong in the CTA, never in the Hook, Context or Body.
+_TEASER_RE = re.compile(
+    r"\bDM\b|\bDM-?(?:la|ku|pannunga)|link in bio|bio link|\bfollow pannunga\b|\bsubscribe\b|"
+    r"comment[- ]?la [^.!?]{0,30}(?:podunga|sollunga)|"
+    r"\bnaanga \S[^.!?]{0,50}(?:tharrom|tharom|thar(?:u|o)vom|share panrom|anuppurom)|"
+    r"\b(?:solli )?tharr?om\b|\bthar(?:u|o)vom\b|"
+    r"\bwe(?:'ll| will) (?:teach|share|send|show) you|\bour (?:agency|team|guide|services?)\b|"
+    r"டிஎம்|மெசேஜ் அனுப்புங்க|நாங்க [^.!?]{0,50}(?:தர்றோம்|தருவோம்|சொல்லித் தர்றோம்)",
+    re.IGNORECASE,
+)
+
+
+def is_teaser_line(text: str, objective: str = "") -> bool:
+    """True for pitch/teaser text (DM us, we'll teach you, the conversion objective itself)."""
+    if not text:
+        return False
+    if _TEASER_RE.search(text):
+        return True
+    obj = (objective or "").strip().lower()
+    return len(obj) >= 8 and obj in text.lower()
+
+
+def _drop_teaser_body_points(draft: ScriptDraft, objective: str) -> List[str]:
+    """Remove Body points that pitch instead of teach; renumber the rest. Returns removed points."""
+    kept, removed = [], []
+    for point in draft.body_points:
+        (removed if is_teaser_line(point, objective) else kept).append(point)
+    if removed:
+        draft.body_points = [
+            f"{i}. {re.sub(r'^\s*\d+[.)]\s*', '', p)}" for i, p in enumerate(kept, 1)
+        ]
+    return removed
+
+
 def run_deterministic_audit(draft: ScriptDraft, inp: ScriptInput) -> Dict[str, Any]:
     """Run deterministic pre/post checks across all script text and hooks."""
     spoken_text = " ".join(
@@ -1335,6 +1383,16 @@ EXISTING BODY POINTS (do not repeat):
         pre_audit = run_deterministic_audit(draft, inp)
 
         pre_check_notes = []
+        teaser_lines = [
+            t
+            for t in [draft.hook, draft.context, *draft.body_points]
+            if is_teaser_line(t, inp.objective)
+        ]
+        if teaser_lines:
+            pre_check_notes.append(
+                f"PITCH/TEASER LINES OUTSIDE THE CTA: {teaser_lines[:4]}. Hook/Context/Body must teach the Topic; "
+                "rewrite these as concrete facts, examples or steps from the research. The objective belongs ONLY in the CTA."
+            )
         if pre_audit["cliche_hits"]:
             pre_check_notes.append(
                 f"BANNED AI CLICHES / FORBIDDEN WORDS FOUND: {pre_audit['cliche_hits']}"
@@ -1456,6 +1514,24 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
 
         updated_draft = draft.model_copy(deep=True)
         if revised and isinstance(revised, dict):
+            # Reject audit rewrites that switch a Tanglish/English script into Tamil script.
+            switched = [
+                k
+                for k in ("hook", "context", "body_points", "engagement", "cta")
+                if revised.get(k)
+                and is_wrong_script(
+                    " ".join(revised[k])
+                    if isinstance(revised[k], list)
+                    else str(revised[k]),
+                    inp.tone,
+                )
+            ]
+            for k in switched:
+                revised.pop(k, None)
+            if switched:
+                fixes_applied.append(
+                    f"Kept the original {', '.join(switched)}: the audit rewrite switched {inp.tone} into Tamil script."
+                )
             if revised.get("hook"):
                 revised_hook_text = revised["hook"].strip()
                 updated_draft.hook = revised_hook_text
@@ -1511,6 +1587,13 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
                 )
             updated_draft.engagement = repair_tamil_splits(updated_draft.engagement)
             updated_draft.cta = repair_tamil_splits(updated_draft.cta)
+
+        # Value-first body: pitch/teaser points are removed; the expansion below refills with facts
+        removed_teasers = _drop_teaser_body_points(updated_draft, inp.objective)
+        if removed_teasers:
+            fixes_applied.append(
+                f"Removed {len(removed_teasers)} pitch/teaser body point(s) that did not teach the topic."
+            )
 
         # 45s/60s minimum: add research-backed, on-topic points only (before cleanup so they get it too)
         duration_expanded_note = self._expand_body_on_topic(
@@ -1574,6 +1657,17 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
         c1 = _check_entry("unsupported_claims", "Verified.")
         c2 = _check_entry("repetition", "No repetition found.")
         c3 = _check_entry("weak_cta", "Specific and aligned.")
+        leftover_teasers = [
+            t
+            for t in (updated_draft.hook, updated_draft.context)
+            if is_teaser_line(t, inp.objective)
+        ]
+        if leftover_teasers:
+            c3["status"] = "FLAG"
+            c3["notes"] = (
+                "Hook/Context still pitch instead of informing (objective belongs only in the CTA): "
+                + " | ".join(x[:80] for x in leftover_teasers)
+            )
         c4_default = (
             "Natural conversational spoken English; zero corporate jargon or AI clichés."
             if is_english

@@ -327,7 +327,7 @@ def test_pipeline_offline_execution():
     def mock_generate_json(*args, **kwargs):
         system_prompt = kwargs.get("system_prompt", args[0] if len(args) > 0 else "")
         user_prompt = kwargs.get("user_prompt", args[1] if len(args) > 1 else "")
-        if "Research" in system_prompt or "RESEARCH" in system_prompt:
+        if "Lead Researcher" in system_prompt:
             return mock_research_data
         elif (
             "Quality" in system_prompt

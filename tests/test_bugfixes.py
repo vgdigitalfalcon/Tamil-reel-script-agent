@@ -487,3 +487,169 @@ def test_template_fallback_is_flagged_to_the_user():
         _fallback_warning([{"finish_reason": "STOP"}, {"finish_reason": "FALLBACK"}])
         == AI_BUSY_WARNING
     )
+
+
+# --- Value-first body: no pitch/teaser lines, grounded news research --------------------
+
+
+def test_teaser_and_objective_lines_are_detected_but_real_facts_are_not():
+    from src.agents.quality_agent import is_teaser_line
+
+    obj = "Get agency leads"
+    for line in (
+        "5. Weekly current affairs eduthu, unga small business-ku puriyura madhiri solli tharrom.",
+        "Weekly tech guide venumna 'LEADS'-nu DM pannunga!",
+        "Naanga ungalukku free-ah guide anuppurom.",
+        "We will teach you the whole system.",
+        "Get agency leads easy-ah varum.",
+    ):
+        assert is_teaser_line(line, obj), line
+    for line in (
+        "1. [Stress] Google ippo Gemini 3.8 release pannirukanga, free tier-la kidaikkudhu.",
+        "DMK alliance news this week",
+        "Apple tharum pudhu iOS update battery problem fix pannudhu.",
+    ):
+        assert not is_teaser_line(line, obj), line
+
+
+def test_pitch_body_points_are_removed_and_refilled_with_research_facts():
+    from src.agents.quality_agent import QualityAgent
+    from src.models import ResearchResult, ScriptDraft, ScriptInput
+
+    llm = LLMClient(provider="simulation")
+    inp = ScriptInput.create_with_defaults(
+        topic="current week tech news",
+        tone="Tanglish",
+        duration=45,
+        objective="Get agency leads",
+    )
+    draft = ScriptDraft(
+        hook="[Curious tone] Indha vaaram tech-la enna nadandhuchu theriyumaa?",
+        context="[Pause] Moonu periya update irukku.",
+        body_points=[
+            "1. [Stress] Google Gemini 3.8 ippo ellarukkum free tier-la kidaikkudhu.",
+            "2. Weekly current affairs eduthu, unga business-ku puriyura madhiri solli tharrom.",
+            "3. [Pause] Weekly tech guide venumna 'LEADS'-nu DM pannunga.",
+        ],
+        engagement="[Question tone] Edhu unga favourite update?",
+        cta="[Direct eye contact] Agency leads venumna 'LEADS'-nu DM pannunga!",
+    )
+    refill = {
+        "new_points": [
+            "[Stress] Black Friday week-la retailers pudhu gadgets vilaiya romba kuraichirukanga.",
+            "[Pause] HFCL, Sterlite Tech maadhiri AI theme stocks rendu maasathula 41 percent vizhundhirukku.",
+            "[Slow down] Nov 20 andru periya stock indexes ellam sarinju, 2026 gains konjam poyiduchu.",
+            "[Curious tone] Robot vacuum deals-la 750 dollar varaikkum discount kudukuranga indha vaaram.",
+        ]
+    }
+    no_op = {"checks": {}, "fixes_applied": [], "revised_script": None}
+    with patch.object(llm, "generate_json", side_effect=[no_op, refill]):
+        qc, out = QualityAgent(llm).execute(inp, ResearchResult(topic=inp.topic), draft)
+    body = " ".join(out.body_points)
+    assert "tharrom" not in body and "DM pannunga" not in body
+    assert out.body_points[0].startswith("1. [Stress] Google Gemini 3.8")
+    assert any("Sterlite" in p for p in out.body_points)  # refilled from research
+    assert "DM pannunga" in out.cta  # the CTA keeps the objective
+    assert any("pitch/teaser" in f for f in qc.fixes_applied)
+
+
+def test_off_topic_search_results_are_dropped():
+    from src.search_tool import filter_relevant_results
+
+    results = [
+        {
+            "title": "Oakes Kia of Olathe | BBB Business Profile",
+            "snippet": "car dealer",
+            "url": "https://bbb.org/x",
+        },
+        {
+            "title": "AI theme stocks tumble",
+            "snippet": "[Business Today | 2026-11-26] tech stocks fell",
+            "url": "https://bt.in/y",
+        },
+    ]
+    kept = filter_relevant_results(results, "current week tech news")
+    assert [r["url"] for r in kept] == ["https://bt.in/y"]
+    assert (
+        filter_relevant_results(results, "இன்று செய்தி") == results
+    )  # no Latin keywords: keep all
+
+
+def test_news_topics_use_news_search_first():
+    from src.search_tool import run_research_queries
+
+    news_item = {
+        "title": "Tech stocks fall",
+        "url": "https://n.example/1",
+        "snippet": "[Reuters | 2026-11-26] tech",
+    }
+    with (
+        patch("src.search_tool.search_news", return_value=[news_item]) as mock_news,
+        patch("src.search_tool.search_web", return_value=[]),
+    ):
+        out = run_research_queries(
+            ["current week tech news"],
+            timelimit="w",
+            news=True,
+            topic="current week tech news",
+        )
+    assert mock_news.called and out == [news_item]
+
+
+def test_audit_rewrite_cannot_switch_tanglish_into_tamil_script():
+    from src.agents.quality_agent import QualityAgent
+    from src.models import ResearchResult, ScriptDraft, ScriptInput
+
+    llm = LLMClient(provider="simulation")
+    inp = ScriptInput.create_with_defaults(
+        topic="current week tech news", tone="Tanglish", duration=30
+    )
+    draft = ScriptDraft(
+        hook="[Stress] Indha vaaram tech-la moonu periya news!",
+        context="[Pause] Seekiram paakalam.",
+        body_points=["1. Google Gemini 3.8 free tier-la vandhuruchu."],
+        engagement="[Question tone] Edhu pudichudhu?",
+        cta="[Direct eye contact] Agency leads venumna 'LEADS'-nu DM pannunga!",
+    )
+    qc_reply = {
+        "checks": {},
+        "fixes_applied": [],
+        "revised_script": {
+            "hook": "[Stress] இந்த வாரம் டெக்ல மூணு பெரிய நியூஸ்!",
+            "cta": draft.cta,
+        },
+    }
+    with patch.object(llm, "generate_json", return_value=qc_reply):
+        _, out = QualityAgent(llm).execute(inp, ResearchResult(topic=inp.topic), draft)
+    assert out.hook == draft.hook
+
+
+def test_writer_retries_once_when_tanglish_comes_back_in_tamil_script():
+    from src.agents.script_agent import ScriptAgent
+    from src.models import ResearchResult, ScriptInput
+
+    llm = LLMClient(provider="simulation")
+    inp = ScriptInput.create_with_defaults(
+        topic="current week tech news", tone="Tanglish", duration=30
+    )
+    tamil = {
+        "hook": "இந்த வாரம் டெக் நியூஸ்",
+        "context": "பாக்கலாம்",
+        "body_points": ["கூகுள் புது அப்டேட்"],
+        "engagement": "",
+        "cta": "டிஎம் பண்ணுங்க",
+    }
+    roman = {
+        "hook": "Indha vaaram tech news",
+        "context": "Paakalam",
+        "body_points": ["Google pudhu update"],
+        "engagement": "",
+        "cta": "DM pannunga",
+    }
+    with patch.object(llm, "generate_json", side_effect=[tamil, roman]) as mock_gen:
+        draft = ScriptAgent(llm).execute(inp, ResearchResult(topic=inp.topic))
+    assert (
+        mock_gen.call_count == 2
+        and "REMINDER" in mock_gen.call_args.kwargs["user_prompt"]
+    )
+    assert draft.hook == "Indha vaaram tech news"

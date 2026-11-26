@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict
 
+from src.agents.quality_agent import is_wrong_script
 from src.config import (
     MAX_OUTPUT_TOKENS,
     REGENERATION_MAX_OUTPUT_TOKENS,
@@ -24,6 +25,19 @@ from src.prompts import (
 from src.simulation import SimulationProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _sum_usage(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
+    """Combine token/cost counters of a retried call so both attempts are billed."""
+    out = dict(second or {})
+    for k in ("input_tokens", "output_tokens", "total_tokens"):
+        out[k] = int((first or {}).get(k, 0) or 0) + int((second or {}).get(k, 0) or 0)
+    out["cost_inr"] = round(
+        float((first or {}).get("cost_inr", 0) or 0)
+        + float((second or {}).get("cost_inr", 0) or 0),
+        4,
+    )
+    return out
 
 
 def _format_brand_dna_section(inp: ScriptInput) -> str:
@@ -117,7 +131,7 @@ Platform: {inp.platform}
 Target Duration: {inp.duration} seconds (STRICT spoken word count: {limits["min"]}-{limits["max"]} words, excluding [modulation] tags)
 Tone / Language Mode: {inp.tone}
 {script_lang_rule}
-Objective: {inp.objective}
+Conversion Objective (use ONLY in the CTA; Hook/Context/Body must teach the Topic, never pitch this): {inp.objective}
 {brand_dna_block}
 RESEARCH FINDINGS:
 {chr(10).join(f"- {f}" for f in research.key_findings)}
@@ -140,6 +154,31 @@ Write a single-narrator, {address_note} with inline vocal modulation cues ([Paus
             max_output_tokens=MAX_OUTPUT_TOKENS,
         )
         self.last_usage = dict(getattr(self.llm, "last_usage", {}) or {})
+
+        # Tanglish/English must be in Roman letters; retry once if the model wrote Tamil script.
+        spoken = (
+            " ".join(
+                str(data.get(k, "")) for k in ("hook", "context", "engagement", "cta")
+            )
+            + " "
+            + " ".join(str(x) for x in data.get("body_points", []) or [])
+        )
+        if is_wrong_script(spoken, inp.tone):
+            logger.warning(
+                f"Script came back in Tamil script for tone '{inp.tone}'; retrying once."
+            )
+            first_usage = self.last_usage
+            retry = self.llm.generate_json(
+                system_prompt=SCRIPT_SYSTEM_PROMPT,
+                user_prompt=user_prompt
+                + f"\nREMINDER: Tone is '{inp.tone}'. Write EVERY spoken line in Roman/English letters only. NO Tamil script.",
+                default_fallback=data,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
+            self.last_usage = _sum_usage(
+                first_usage, dict(getattr(self.llm, "last_usage", {}) or {})
+            )
+            data = retry
 
         hooks_list = [
             HookItem(

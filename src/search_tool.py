@@ -17,6 +17,14 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 logger = logging.getLogger(__name__)
 
 
+def _load_ddgs():
+    try:
+        from ddgs import DDGS
+    except ImportError:  # older installs only have the renamed legacy package
+        from duckduckgo_search import DDGS
+    return DDGS
+
+
 def search_web(
     query: str, max_results: int = 5, timelimit: Optional[str] = None
 ) -> List[Dict[str, str]]:
@@ -30,16 +38,10 @@ def search_web(
 
     results: List[Dict[str, str]] = []
     try:
-        try:
-            from ddgs import DDGS
-        except ImportError:
-            from duckduckgo_search import DDGS
-
-        ddgs = DDGS()
         search_kwargs: Dict[str, Any] = {"max_results": max_results}
         if timelimit:
             search_kwargs["timelimit"] = timelimit
-        raw_results = list(ddgs.text(query, **search_kwargs))
+        raw_results = list(_load_ddgs()().text(query, **search_kwargs))
         for item in raw_results:
             url = item.get("href") or item.get("link") or ""
             if url:
@@ -59,22 +61,121 @@ def search_web(
     return results
 
 
-def run_research_queries(
-    queries: List[str], max_per_query: int = 3, timelimit: Optional[str] = None
+def search_news(
+    query: str, max_results: int = 5, timelimit: Optional[str] = "w"
 ) -> List[Dict[str, str]]:
-    """Run a batch of 3-6 queries, deduplicating results by URL."""
+    """DuckDuckGo News search: dated articles from news outlets, for current-events topics."""
+    if not query or not query.strip():
+        return []
+    try:
+        raw = list(
+            _load_ddgs()().news(query, max_results=max_results, timelimit=timelimit)
+        )
+    except Exception as e:
+        logger.warning(f"DuckDuckGo news search failed for query '{query}': {e}")
+        return []
+    results: List[Dict[str, str]] = []
+    for item in raw:
+        url = item.get("url") or item.get("href") or ""
+        if not url:
+            continue
+        meta = " | ".join(x for x in (item.get("source"), item.get("date")) if x)
+        snippet = (item.get("body") or "").strip()
+        results.append(
+            {
+                "title": item.get("title", "News"),
+                "url": url,
+                "snippet": f"[{meta}] {snippet}" if meta else snippet,
+            }
+        )
+    return results
+
+
+_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "what",
+    "why",
+    "how",
+    "are",
+    "your",
+    "you",
+    "from",
+    "about",
+    "into",
+    "week",
+    "current",
+    "latest",
+    "today",
+    "news",
+    "update",
+    "updates",
+    "new",
+    "best",
+    "top",
+    "tips",
+    "guide",
+    "facts",
+    "data",
+    "common",
+    "mistakes",
+    "explained",
+    "month",
+    "year",
+    "recent",
+    "trending",
+}
+
+
+def _topic_keywords(topic: str) -> set:
+    words = re.findall(r"[a-z0-9]{3,}", (topic or "").lower())
+    return {w for w in words if w not in _STOPWORDS and not re.fullmatch(r"20\d{2}", w)}
+
+
+def filter_relevant_results(
+    results: List[Dict[str, str]], topic: str
+) -> List[Dict[str, str]]:
+    """Drop results that share no keyword with the topic (e.g. a car dealer page for
+    'current week tech news'). Keeps everything when the topic has no Latin keywords."""
+    keywords = _topic_keywords(topic)
+    if not keywords:
+        return results
+    kept = []
+    for res in results:
+        text = f"{res.get('title', '')} {res.get('snippet', '')} {res.get('url', '')}".lower()
+        if any(k in text for k in keywords):
+            kept.append(res)
+    return kept
+
+
+def run_research_queries(
+    queries: List[str],
+    max_per_query: int = 3,
+    timelimit: Optional[str] = None,
+    news: bool = False,
+    topic: str = "",
+) -> List[Dict[str, str]]:
+    """Run a batch of queries (news search first when news=True), dedup by URL, keep on-topic."""
     seen_urls = set()
     aggregated: List[Dict[str, str]] = []
 
-    for q in queries:
-        query_results = search_web(q, max_results=max_per_query, timelimit=timelimit)
-        for res in query_results:
+    def _add(items: List[Dict[str, str]]) -> None:
+        for res in items:
             url = res.get("url")
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 aggregated.append(res)
 
-    return aggregated
+    if news and queries:
+        _add(search_news(queries[0], max_results=8, timelimit=timelimit or "w"))
+    for q in queries:
+        _add(search_web(q, max_results=max_per_query, timelimit=timelimit))
+
+    return filter_relevant_results(aggregated, topic) if topic else aggregated
 
 
 def _extract_html_title_and_text(
@@ -268,9 +369,13 @@ async def async_fetch_reference_url(
 
 
 async def async_run_research_queries(
-    queries: List[str], max_per_query: int = 3, timelimit: Optional[str] = None
+    queries: List[str],
+    max_per_query: int = 3,
+    timelimit: Optional[str] = None,
+    news: bool = False,
+    topic: str = "",
 ) -> List[Dict[str, str]]:
     """Run DuckDuckGo queries in a worker thread without blocking the asyncio event loop."""
     return await asyncio.to_thread(
-        run_research_queries, queries, max_per_query, timelimit
+        run_research_queries, queries, max_per_query, timelimit, news, topic
     )
