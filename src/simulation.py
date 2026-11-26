@@ -211,7 +211,7 @@ class SimulationProvider:
         pain_points = [
             f"Spending time and money on {inp.topic} without seeing genuine customer inquiries.",
             f"Getting confused by mixed online advice about {inp.topic}.",
-            f"Missing simple everyday fixes while competitors quietly capture the same local audience.",
+            "Missing simple everyday fixes while competitors quietly capture the same local audience.",
         ]
 
         angle = f"3 practical mistakes to fix right away in {inp.topic}."
@@ -457,8 +457,8 @@ class SimulationProvider:
             c3 = "[Slow down] Ready for your next step? Check the link in bio today."
         elif is_tanglish:
             c1 = f"[Direct eye contact] {obj.capitalize()}-ku exclusive checklist ungalukku venumna, 'INFO' nu DM pannunga!"
-            c2 = f"[Pause] Comment-la 'GUIDE' nu podunga, namma team direct-ah link anuppuvanga!"
-            c3 = f"[Slow down] Neenga next step eduka ready-na, bio link-ah check pannunga!"
+            c2 = "[Pause] Comment-la 'GUIDE' nu podunga, namma team direct-ah link anuppuvanga!"
+            c3 = "[Slow down] Neenga next step eduka ready-na, bio link-ah check pannunga!"
         else:
             adapted_obj = adapt_objective_to_conversational_tamil(obj)
             if inp.tone == "Tamil":

@@ -21,6 +21,7 @@ CRITICAL RULES:
 5. Identify 3 distinct, relatable audience pain points phrased in everyday spoken terms (how a real customer or creator talks, not textbook/corporate language).
 6. Choose ONE clear content angle that avoids generic advice. Provide a 1-line explanation of why this angle was chosen.
 7. Respect any Client Brand DNA context (industry, target audience, brand tone, forbidden words) provided in the prompt.
+8. TOPIC PRIORITY: The user's Topic always decides what the research is about. Client Brand DNA (industry, offer) is context for voice and audience only; never swap the Topic for the client's industry. Discard search results that do not match the Topic.
 
 Output strictly valid JSON with this schema:
 {
@@ -74,6 +75,7 @@ MANDATORY FORMAT & RESPECTFUL TONE LOCK:
    - NATURAL TAMIL CTA PHRASING: When Tone is 'Tamil' or 'conversational spoken Tamil', NEVER paste the raw English Objective phrase verbatim before Tamil CTA words (e.g., NEVER write "Get agency leads கைடு வேணும்னா"). Always naturally translate or adapt the objective into conversational spoken Tamil (e.g., "உங்க ஏஜென்சிக்கு லீட்ஸ் வர கைடு வேணும்னா 'REEL'-னு மெசேஜ் அனுப்புங்க").
    - NO fake guarantees ("1st rank guaranteed", "100% job guaranteed"). NO fake urgency.
    - Respect all Client Brand DNA forbidden words and brand tone if provided.
+   - TOPIC PRIORITY: The Topic governs the Hook, Context and Body. Client Brand DNA (industry, offer, client name) may shape only the brand voice and the CTA; NEVER rewrite the Topic into the client's industry.
 
 HOOK OPTIONS:
 - Provide 3 distinct hooks (question / bold statement / pain-point), max ~12 spoken words each.
@@ -126,7 +128,7 @@ Your job is to rigorously audit the draft script against 7 STRICT CRITERIA and F
    - Verify inline vocal modulation cues ({_MODULATION_EXAMPLES}) are present so the delivery sounds natural.
 
 CRITICAL SELF-CORRECTION RULE:
-If ANY of the 7 checks fails, set its status strictly to "FLAG" (NEVER "FAIL") and rewrite the defective script segments in 'revised_script' so every criterion passes cleanly while preserving research and Brand DNA, and log every correction in 'fixes_applied'. Use ONLY "PASS" or "FLAG" for every status field.
+If ANY of the 7 checks fails, set its status strictly to "FLAG" (NEVER "FAIL") and rewrite the defective script segments in 'revised_script' so every criterion passes cleanly while preserving the user's Topic (never reframe it into the client's industry), the research and Brand DNA, and log every correction in 'fixes_applied'. Use ONLY "PASS" or "FLAG" for every status field.
 
 Output strictly valid JSON with this schema:
 {{

@@ -5,6 +5,7 @@ import {
   DURATIONS,
   LANGUAGES,
   PLATFORMS,
+  getActiveOverrides,
   getLimitsForTone,
 } from "../constants.js";
 
@@ -99,7 +100,8 @@ function ModeSection({ form, onChange, quotaStatus, viaPhp }) {
   );
 }
 
-function TopicSection({ form, onChange }) {
+function TopicSection({ form, onChange, onResetContext }) {
+  const overrides = getActiveOverrides(form);
   return (
     <section className="side-group">
       <h2 className="side-label">2. Topic</h2>
@@ -133,8 +135,21 @@ function TopicSection({ form, onChange }) {
             tune
           </span>
           <span>Audience &amp; Reference URL</span>
+          {overrides.length > 0 ? (
+            <span className="override-badge" title={`Custom values in use: ${overrides.join(", ")}`}>
+              {overrides.length} active
+            </span>
+          ) : null}
         </summary>
         <div className="details-body">
+          {overrides.length > 0 ? (
+            <div className="override-note" role="status">
+              <span>Applies to this script: {overrides.join(", ")}.</span>
+              <button type="button" className="link-btn" onClick={onResetContext}>
+                Reset to defaults
+              </button>
+            </div>
+          ) : null}
           <label className="field-label" htmlFor="audienceInput">
             Target Audience
           </label>
@@ -226,7 +241,7 @@ function FormatSection({ form, onChange, limits, paceRate }) {
   );
 }
 
-export function Sidebar({ form, onChange, onGenerate, isLoading, loadingLabel, quotaStatus, bootstrap }) {
+export function Sidebar({ form, onChange, onResetContext, onGenerate, isLoading, loadingLabel, quotaStatus, bootstrap }) {
   const limits = getLimitsForTone(form.duration, form.language);
   const paceRate = form.language === "English" ? "~2.4 w/s" : "~2.2 w/s";
 
@@ -235,7 +250,7 @@ export function Sidebar({ form, onChange, onGenerate, isLoading, loadingLabel, q
       <div className="sidebar-scroll">
         <ModeSection form={form} onChange={onChange} quotaStatus={quotaStatus} viaPhp={bootstrap?.viaPhp} />
         <hr className="side-divider" />
-        <TopicSection form={form} onChange={onChange} />
+        <TopicSection form={form} onChange={onChange} onResetContext={onResetContext} />
         <hr className="side-divider" />
         <FormatSection form={form} onChange={onChange} limits={limits} paceRate={paceRate} />
       </div>

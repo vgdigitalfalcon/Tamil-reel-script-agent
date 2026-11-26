@@ -1,3 +1,19 @@
+// Context fields that silently shape every script. Kept here so the sidebar can flag
+// values that differ from these and "New" can reset them.
+export const DEFAULT_CONTEXT_FIELDS = {
+  audience: "Small business owners & Tamil entrepreneurs",
+  niche: "Business & Technology",
+  referenceUrl: "",
+};
+
+export function getActiveOverrides(form) {
+  const active = [];
+  if ((form.audience || "").trim() !== DEFAULT_CONTEXT_FIELDS.audience) active.push("Audience");
+  if ((form.niche || "").trim() !== DEFAULT_CONTEXT_FIELDS.niche) active.push("Niche");
+  if ((form.referenceUrl || "").trim()) active.push("Reference URL");
+  return active;
+}
+
 export const PRESETS = [
   {
     title: "Why websites fail to get leads",

@@ -201,4 +201,37 @@ describe("ScriptFalcon React + PHP UI", () => {
     await waitFor(() => expect(screen.getByText("Daily Teammate Limit Reached (HTTP 429)")).toBeInTheDocument());
     expect(screen.getByText(/Request bonus runs from Admin/i)).toBeInTheDocument();
   });
+
+  it("flags stale audience/URL overrides, warns on missing live data, and New resets context", async () => {
+    const warning = "Live data not fetched: verify every claim before recording.";
+    const fetchMock = vi.fn(async (url, opts) => {
+      if (opts?.method === "POST") {
+        const base = makeDeliverableResponse("Tanglish");
+        base.deliverable.research.live_data_warning = warning;
+        return new Response(JSON.stringify(base), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      const body = String(url).includes("recent") ? { items: [] } : { status: "healthy" };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App bootstrapOverride={{ authenticated: true, viaPhp: false, apiBase: "", defaultMode: "crm" }} />);
+
+    expect(screen.queryByText(/active$/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Client Reference URL (Optional)"), {
+      target: { value: "https://clientwebsite.com/offer" },
+    });
+    expect(screen.getByText("1 active")).toBeInTheDocument();
+    expect(screen.getByText(/Applies to this script: Reference URL/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Primary Video Topic"), { target: { value: "current week tech news" } });
+    fireEvent.click(screen.getByRole("button", { name: /Generate Script/i }));
+    await waitFor(() => expect(screen.getByText("Live data not fetched")).toBeInTheDocument());
+    expect(screen.getByText(warning)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    expect(screen.getByLabelText("Primary Video Topic")).toHaveValue("");
+    expect(screen.getByLabelText("Client Reference URL (Optional)")).toHaveValue("");
+    expect(screen.queryByText("1 active")).not.toBeInTheDocument();
+    expect(screen.queryByText("Live data not fetched")).not.toBeInTheDocument();
+  });
 });

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from src.llm import LLMClient
@@ -24,12 +25,43 @@ _RATE_LIMIT_UNCERTAINTY = (
 )
 
 
+LIVE_DATA_WARNING = (
+    "Live data not fetched: this topic depends on recent events, but live web search "
+    "returned no results. The script may contain outdated or invented facts. "
+    "Verify every claim before recording, or try again later."
+)
+
+# Topics whose facts change week to week: search with a recency filter and never
+# let the model fill gaps from memory.
+_TIME_SENSITIVE_RE = re.compile(
+    r"\b(news|latest|trending|this (?:week|month|year)|current (?:week|month|year)|"
+    r"today|yesterday|tonight|weekly|recent(?:ly)?|update[sd]?|announce[ds]?|"
+    r"launch(?:ed|es)?|breaking|headlines?|live score|price today|rate today|20[2-9]\d)\b"
+    r"|இன்று|இந்த வாரம்|செய்தி|லேட்டஸ்ட்|நியூஸ்",
+    re.IGNORECASE,
+)
+
+_TOPIC_LOCK = (
+    "TOPIC LOCK: The Topic above is the subject of this video. Every finding, pain point "
+    "and the chosen angle MUST be about that Topic. Client Brand DNA, Niche and Audience "
+    "only shape who we speak to and the brand voice; never replace or reframe the Topic "
+    "into the client's industry, and ignore search results that are off-topic."
+)
+
+
+def is_time_sensitive_topic(topic: str) -> bool:
+    """True when the topic asks for current events (news, 'this week', a year, etc.)."""
+    return bool(_TIME_SENSITIVE_RE.search(topic or ""))
+
+
 def _format_brand_dna(inp: ScriptInput) -> str:
     """Format optional Client Brand DNA context for prompt injection."""
     if not inp.brand_dna:
         return ""
     dna = inp.brand_dna
-    lines = ["CLIENT BRAND DNA:"]
+    lines = [
+        "CLIENT BRAND DNA (voice, audience and forbidden words only; does NOT change the Topic):"
+    ]
     if dna.client_name:
         lines.append(f"- Brand/Client: {dna.client_name}")
     if dna.industry:
@@ -51,7 +83,11 @@ class ResearchAgent:
         self.last_usage: Dict[str, Any] = {}
 
     def _generate_search_queries(self, inp: ScriptInput) -> List[str]:
-        """Generate 3 targeted search queries capped at 8 core words."""
+        """Generate 3 topic-only search queries capped at 8 core words.
+
+        Queries carry no fixed industry words, so the topic alone decides what is searched.
+        Time-sensitive topics get dated queries (and a recency filter at search time).
+        """
         t = inp.topic.strip()
         cleaned = re.sub(
             r"^(why are|why do|why is|how to|what is|why|is|should|can|are)\s+",
@@ -61,11 +97,19 @@ class ResearchAgent:
         ).rstrip("?")
         words = cleaned.split()
         core_query = " ".join(words[:8]) if len(words) > 8 else cleaned
+        if is_time_sensitive_topic(t):
+            month_year = date.today().strftime("%B %Y")
+            return [core_query, f"{core_query} {month_year}", f"{core_query} latest"]
         return [
+            core_query,
             f"{core_query} facts data",
-            f"{core_query} pros cons comparison",
-            f"{core_query} cost maintenance guide",
+            f"{core_query} common mistakes tips",
         ]
+
+    @staticmethod
+    def _timelimit(inp: ScriptInput) -> Optional[str]:
+        """DuckDuckGo recency filter: past week for news-style topics, none otherwise."""
+        return "w" if is_time_sensitive_topic(inp.topic) else None
 
     def _build_research_result(
         self,
@@ -81,6 +125,7 @@ class ResearchAgent:
         combined_results.extend(raw_results)
 
         search_fallback_used = len(raw_results) == 0 and ref_item is None
+        time_sensitive = is_time_sensitive_topic(inp.topic)
 
         context_snippets = []
         for i, item in enumerate(combined_results[:12], 1):
@@ -99,13 +144,21 @@ class ResearchAgent:
             )
 
         brand_dna_block = _format_brand_dna(inp)
+        recency_rule = (
+            f"TIME-SENSITIVE TOPIC (today is {date.today().isoformat()}): use ONLY facts that "
+            "appear in the live results below. Never fill gaps with remembered or older events. "
+            "If the results contain nothing current, say so in uncertainties.\n"
+            if time_sensitive
+            else ""
+        )
         ref_line = f"Reference URL: {inp.reference_url}\n" if inp.reference_url else ""
 
         user_prompt = f"""Topic: {inp.topic}
 Audience: {inp.audience}
 Niche: {inp.niche}
 Objective: {inp.objective}
-{ref_line}{brand_dna_block}
+{_TOPIC_LOCK}
+{recency_rule}{ref_line}{brand_dna_block}
 LIVE SEARCH & REFERENCE RESULTS:
 {formatted_context}
 
@@ -135,6 +188,9 @@ Please analyze these results, extract everyday spoken audience pain points (no c
         uncertainties = list(data.get("uncertainties", []))
         if search_fallback_used and _RATE_LIMIT_UNCERTAINTY not in uncertainties:
             uncertainties.append(_RATE_LIMIT_UNCERTAINTY)
+        live_data_warning = (
+            LIVE_DATA_WARNING if time_sensitive and not raw_results else ""
+        )
 
         return ResearchResult(
             topic=inp.topic,
@@ -146,19 +202,25 @@ Please analyze these results, extract everyday spoken audience pain points (no c
             sources=source_items,
             uncertainties=uncertainties,
             search_fallback_used=search_fallback_used,
+            is_time_sensitive=time_sensitive,
+            live_data_warning=live_data_warning,
         )
 
     def execute(self, inp: ScriptInput) -> ResearchResult:
         """Synchronously run web searches, optional reference URL fetch, and LLM synthesis."""
         queries = self._generate_search_queries(inp)
-        raw_results = run_research_queries(queries, max_per_query=3)
+        raw_results = run_research_queries(
+            queries, max_per_query=3, timelimit=self._timelimit(inp)
+        )
         ref_item = fetch_reference_url(inp.reference_url) if inp.reference_url else None
         return self._build_research_result(inp, queries, raw_results, ref_item)
 
     async def aexecute(self, inp: ScriptInput) -> ResearchResult:
         """Non-blocking async research execution offloading search & LLM calls off the event loop."""
         queries = self._generate_search_queries(inp)
-        search_coro = async_run_research_queries(queries, max_per_query=3)
+        search_coro = async_run_research_queries(
+            queries, max_per_query=3, timelimit=self._timelimit(inp)
+        )
         if inp.reference_url:
             raw_results, ref_item = await asyncio.gather(
                 search_coro,

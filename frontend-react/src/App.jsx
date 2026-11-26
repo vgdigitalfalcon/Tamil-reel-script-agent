@@ -5,14 +5,12 @@ import { EmptyState } from "./components/EmptyState.jsx";
 import { ResultWorkspace } from "./components/ResultWorkspace.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { TopBar } from "./components/TopBar.jsx";
-import { PRESETS, normalizeLanguageValue } from "./constants.js";
+import { DEFAULT_CONTEXT_FIELDS, PRESETS, normalizeLanguageValue } from "./constants.js";
 
 const INITIAL_FORM_BASE = {
   topic: "",
   objective: "Get agency leads",
-  audience: "Small business owners & Tamil entrepreneurs",
-  niche: "Business & Technology",
-  referenceUrl: "",
+  ...DEFAULT_CONTEXT_FIELDS,
   platform: "Instagram Reels",
   duration: 30,
   language: "Tanglish",
@@ -77,7 +75,22 @@ export function App({ bootstrapOverride = null }) {
       objective: preset.objective,
       audience: preset.audience,
       niche: preset.niche,
+      // A reference URL belongs to one client brief; never carry it into a preset topic.
+      referenceUrl: "",
     }));
+  }
+
+  function handleResetContext() {
+    setForm((prev) => ({ ...prev, ...DEFAULT_CONTEXT_FIELDS }));
+  }
+
+  function handleNewScript() {
+    // Start clean: drop the old topic and any audience/niche/URL left from the last run.
+    setDeliverable(null);
+    setMarkdown("");
+    setClipfalconHandoff(null);
+    setError(null);
+    setForm((prev) => ({ ...prev, topic: "", objective: INITIAL_FORM_BASE.objective, ...DEFAULT_CONTEXT_FIELDS }));
   }
 
   function applyResultPayload(data) {
@@ -86,6 +99,8 @@ export function App({ bootstrapOverride = null }) {
     setClipfalconHandoff(data.clipfalcon_handoff || null);
     if (data.quota_status) setQuotaStatus(data.quota_status);
     setRegenObjective(data.deliverable?.input_data?.objective || "");
+    const liveWarning = data.deliverable?.research?.live_data_warning;
+    setError(liveWarning ? { title: "Live data not fetched", message: liveWarning, details: [], variant: "warn" } : null);
   }
 
   async function executeScriptRequest(endpoint, body, nextLoadingLabel, fallbackTitle) {
@@ -152,6 +167,7 @@ export function App({ bootstrapOverride = null }) {
       <Sidebar
         form={form}
         onChange={handleFormChange}
+        onResetContext={handleResetContext}
         onGenerate={handleGenerate}
         isLoading={isLoading}
         loadingLabel={loadingLabel}
@@ -170,7 +186,7 @@ export function App({ bootstrapOverride = null }) {
             onChangeRegenObjective={setRegenObjective}
             onRegenerateHooks={() => handleRegenerate("hook")}
             onRegenerateCta={() => handleRegenerate("cta")}
-            onBack={() => setDeliverable(null)}
+            onBack={handleNewScript}
             isLoading={isLoading}
           />
         ) : (

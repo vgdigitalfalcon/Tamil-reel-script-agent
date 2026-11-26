@@ -242,6 +242,41 @@ body {
   list-style: none;
 }
 
+.override-badge {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--warn-border);
+  background-color: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.override-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background-color: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 12px;
+}
+
+.link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .details-body {
   display: flex;
   flex-direction: column;

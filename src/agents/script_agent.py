@@ -31,7 +31,10 @@ def _format_brand_dna_section(inp: ScriptInput) -> str:
     if not inp.brand_dna:
         return ""
     dna = inp.brand_dna
-    lines = ["CLIENT BRAND DNA (MANDATORY):"]
+    lines = [
+        "CLIENT BRAND DNA (shapes brand voice, audience framing and the CTA only; "
+        "forbidden words are mandatory; NEVER change the Topic of the Hook/Body):"
+    ]
     if dna.client_name:
         lines.append(f"- Client Name: {dna.client_name}")
     if dna.industry:
@@ -101,8 +104,15 @@ class ScriptAgent:
             address_note = "respectful ('Neenga'/'Namma') script"
             integrity_note = "clean Tamil word integrity, zero AI clichés"
 
+        recency_note = (
+            "TIME-SENSITIVE TOPIC: state only facts listed in RESEARCH FINDINGS; "
+            "do not add news, dates or numbers from memory.\n"
+            if research.is_time_sensitive
+            else ""
+        )
         user_prompt = f"""Topic: {inp.topic}
-Audience: {inp.audience}
+TOPIC LOCK: The Hook, Context and Body MUST be about this exact Topic. The client's industry and offer may appear only in the CTA (and brand voice); never reframe the Topic into the client's industry.
+{recency_note}Audience: {inp.audience}
 Platform: {inp.platform}
 Target Duration: {inp.duration} seconds (STRICT spoken word count: {limits["min"]}-{limits["max"]} words, excluding [modulation] tags)
 Tone / Language Mode: {inp.tone}
@@ -188,7 +198,7 @@ Tone: {inp.tone}
 {brand_dna_block}Current Script Body:
 {chr(10).join(draft.body_points)}
 
-Generate 3 brand new punchy, single-narrator respectful hooks (question, bold statement, pain-point), max 12 spoken words each, strictly matching Tone='{inp.tone}' and zero AI clichés. In 'Tamil' or 'conversational spoken Tamil', never write Tamil words (like namma, unga, pannunga) in Roman letters — always use Tamil script. In 'English', write natural conversational spoken English addressing 'you'/'your' with zero corporate jargon."""
+Generate 3 brand new punchy, single-narrator respectful hooks about the Topic above (never about the client's industry instead), as question, bold statement and pain-point, max 12 spoken words each, strictly matching Tone='{inp.tone}' and zero AI clichés. In 'Tamil' or 'conversational spoken Tamil', never write Tamil words (like namma, unga, pannunga) in Roman letters — always use Tamil script. In 'English', write natural conversational spoken English addressing 'you'/'your' with zero corporate jargon."""
 
         fallback = SimulationProvider.get_hooks_fallback(inp, draft)
         self.llm.last_usage = {}

@@ -314,6 +314,10 @@ class ResearchResult(BaseModel):
     sources: List[SourceItem] = Field(default_factory=list)
     uncertainties: List[str] = Field(default_factory=list)
     search_fallback_used: bool = False
+    is_time_sensitive: bool = (
+        False  # topic needs current facts (news, "this week", ...)
+    )
+    live_data_warning: str = ""  # set when a time-sensitive topic got no live results
 
 
 class HookItem(BaseModel):
@@ -553,6 +557,8 @@ class FullDeliverable(BaseModel):
         lines.append("")
 
         lines.append("## 2. Research Summary")
+        if self.research.live_data_warning:
+            lines.append(f"> **WARNING:** {self.research.live_data_warning}\n")
         lines.append("### Key Findings:")
         for finding in self.research.key_findings:
             lines.append(f"- {finding}")

@@ -7,7 +7,7 @@ import logging
 import re
 import socket
 import warnings
-from typing import Dict, List, NamedTuple, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -17,9 +17,12 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 logger = logging.getLogger(__name__)
 
 
-def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+def search_web(
+    query: str, max_results: int = 5, timelimit: Optional[str] = None
+) -> List[Dict[str, str]]:
     """Execute a DuckDuckGo web search query and return formatted results.
 
+    timelimit: optional recency filter ('d' day, 'w' week, 'm' month, 'y' year).
     Returns an empty list on rate-limit or network failure so callers can fall back gracefully.
     """
     if not query or not query.strip():
@@ -33,7 +36,10 @@ def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
             from duckduckgo_search import DDGS
 
         ddgs = DDGS()
-        raw_results = list(ddgs.text(query, max_results=max_results))
+        search_kwargs: Dict[str, Any] = {"max_results": max_results}
+        if timelimit:
+            search_kwargs["timelimit"] = timelimit
+        raw_results = list(ddgs.text(query, **search_kwargs))
         for item in raw_results:
             url = item.get("href") or item.get("link") or ""
             if url:
@@ -54,14 +60,14 @@ def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
 
 
 def run_research_queries(
-    queries: List[str], max_per_query: int = 3
+    queries: List[str], max_per_query: int = 3, timelimit: Optional[str] = None
 ) -> List[Dict[str, str]]:
     """Run a batch of 3-6 queries, deduplicating results by URL."""
     seen_urls = set()
     aggregated: List[Dict[str, str]] = []
 
     for q in queries:
-        query_results = search_web(q, max_results=max_per_query)
+        query_results = search_web(q, max_results=max_per_query, timelimit=timelimit)
         for res in query_results:
             url = res.get("url")
             if url and url not in seen_urls:
@@ -262,7 +268,9 @@ async def async_fetch_reference_url(
 
 
 async def async_run_research_queries(
-    queries: List[str], max_per_query: int = 3
+    queries: List[str], max_per_query: int = 3, timelimit: Optional[str] = None
 ) -> List[Dict[str, str]]:
     """Run DuckDuckGo queries in a worker thread without blocking the asyncio event loop."""
-    return await asyncio.to_thread(run_research_queries, queries, max_per_query)
+    return await asyncio.to_thread(
+        run_research_queries, queries, max_per_query, timelimit
+    )

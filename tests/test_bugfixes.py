@@ -212,3 +212,114 @@ def test_regenerated_hook_matches_single_recommended_flag():
         updated = ScriptAgent(llm).regenerate_hooks(inp, draft)
     flagged = [h.text for h in updated.hooks if h.is_recommended]
     assert flagged == ["Hook three"] and updated.hook == "Hook three"
+
+
+# --- Topic drift in CRM mode / stale research context ---------------------------------
+
+
+def _crm_input(topic):
+    from src.models import BrandDNA, ScriptInput
+
+    inp = ScriptInput.create_with_defaults(topic=topic, tone="Tanglish", duration=30)
+    inp.client_id = "vg_demo_clinic"
+    inp.brand_dna = BrandDNA(
+        client_id="vg_demo_clinic",
+        client_name="VG Demo Clinic",
+        industry="Healthcare / Clinic",
+        target_audience="Clinic owners",
+    )
+    return inp
+
+
+def test_search_queries_contain_only_the_topic_no_fixed_industry_words():
+    from src.agents.research_agent import ResearchAgent
+
+    agent = ResearchAgent(LLMClient(provider="simulation"))
+    for topic, core in (
+        ("current week tech news", "current week tech news"),
+        ("Why SEO matters for small shops", "SEO matters for small shops"),
+    ):
+        queries = agent._generate_search_queries(_crm_input(topic))
+        joined = " ".join(queries).lower()
+        assert "maintenance" not in joined and "cost" not in joined, queries
+        assert all(q.startswith(core) for q in queries), queries
+
+
+def test_time_sensitive_topics_are_detected():
+    from src.agents.research_agent import is_time_sensitive_topic
+
+    for topic in (
+        "current week tech news",
+        "Latest iPhone launch",
+        "AI updates 2026",
+        "இன்று டெக் செய்தி",
+    ):
+        assert is_time_sensitive_topic(topic), topic
+    for topic in ("Why websites fail to get leads", "SEO basics for clinics"):
+        assert not is_time_sensitive_topic(topic), topic
+
+
+def test_news_topic_searches_past_week_and_warns_when_no_live_results():
+    from src.agents.research_agent import LIVE_DATA_WARNING, ResearchAgent
+
+    agent = ResearchAgent(LLMClient(provider="simulation"))
+    with patch(
+        "src.agents.research_agent.run_research_queries", return_value=[]
+    ) as mock_search:
+        result = agent.execute(_crm_input("current week tech news"))
+    assert mock_search.call_args.kwargs["timelimit"] == "w"
+    assert result.is_time_sensitive is True
+    assert result.live_data_warning == LIVE_DATA_WARNING
+
+
+def test_evergreen_topic_has_no_recency_filter_or_warning():
+    from src.agents.research_agent import ResearchAgent
+
+    agent = ResearchAgent(LLMClient(provider="simulation"))
+    with patch(
+        "src.agents.research_agent.run_research_queries", return_value=[]
+    ) as mock_search:
+        result = agent.execute(_crm_input("Why websites fail to get leads"))
+    assert mock_search.call_args.kwargs["timelimit"] is None
+    assert result.live_data_warning == ""
+
+
+def test_topic_outranks_client_brand_dna_in_prompts():
+    from src.agents.research_agent import ResearchAgent
+    from src.agents.script_agent import ScriptAgent
+    from src.models import ResearchResult
+
+    llm = LLMClient(provider="simulation")
+    inp = _crm_input("current week tech news")
+    prompts = []
+
+    def capture(*args, **kwargs):
+        prompts.append(kwargs["user_prompt"])
+        return kwargs["default_fallback"]
+
+    with (
+        patch.object(llm, "generate_json", side_effect=capture),
+        patch("src.agents.research_agent.run_research_queries", return_value=[]),
+    ):
+        ResearchAgent(llm).execute(inp)
+        ScriptAgent(llm).execute(
+            inp, ResearchResult(topic=inp.topic, is_time_sensitive=True)
+        )
+    research_prompt, script_prompt = prompts
+    for prompt in prompts:
+        assert "TOPIC LOCK" in prompt
+        assert "Topic: current week tech news" in prompt
+        assert "(MANDATORY)" not in prompt  # brand DNA no longer framed as overriding
+    assert "TIME-SENSITIVE TOPIC" in research_prompt
+    assert "TIME-SENSITIVE TOPIC" in script_prompt
+
+
+def test_markdown_export_shows_live_data_warning():
+    from src.agents.research_agent import LIVE_DATA_WARNING
+    from src.pipeline import TamilReelScriptPipeline
+
+    with patch("src.agents.research_agent.run_research_queries", return_value=[]):
+        deliverable = TamilReelScriptPipeline(LLMClient(provider="simulation")).run(
+            _crm_input("current week tech news")
+        )
+    assert LIVE_DATA_WARNING in deliverable.to_markdown()
