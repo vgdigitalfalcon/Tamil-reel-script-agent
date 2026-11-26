@@ -411,3 +411,79 @@ def test_generic_filler_detector_respects_topic():
     )
     assert is_generic_filler(line, "Why websites fail to get leads")
     assert not is_generic_filler(line, "Clinic opening checklist for new doctors")
+
+
+# --- Gemini busy / timeout handling (demo 502) -----------------------------------------
+
+
+class _FakeGeminiModels:
+    """Records model names; fails with the given errors, then answers with JSON."""
+
+    def __init__(self, errors):
+        self.errors, self.calls, self.timeouts = list(errors), [], []
+
+    def generate_content(self, model, contents, config):
+        self.calls.append(model)
+        self.timeouts.append(config.http_options.timeout)
+        if self.errors:
+            raise RuntimeError(self.errors.pop(0))
+
+        class _Resp:
+            text = '{"ok": true}'
+            usage_metadata = None
+            candidates = []
+
+        return _Resp()
+
+
+def _gemini_llm(errors):
+    llm = LLMClient(provider="simulation")
+    llm.provider = "gemini"
+    llm.gemini_client = type("C", (), {"models": _FakeGeminiModels(errors)})()
+    return llm
+
+
+def test_busy_primary_model_is_retried_and_retired_models_are_never_called():
+    import src.llm as llm_mod
+
+    llm = _gemini_llm(["503 UNAVAILABLE high demand"])
+    with patch.object(llm_mod.time, "sleep"):
+        out = llm.generate_json("sys", "user", default_fallback={"x": 0})
+    calls = llm.gemini_client.models.calls
+    assert out == {"ok": True}
+    assert calls == [llm_mod.GEMINI_MODEL, llm_mod.GEMINI_MODEL]  # quick retry worked
+    assert not any(m.startswith("gemini-2.5") for m in llm_mod._GEMINI_BACKUP_MODELS)
+
+
+def test_used_up_time_budget_stops_attempts_and_caps_each_timeout():
+    import src.llm as llm_mod
+
+    llm = _gemini_llm(["503 busy"] * 10)
+    token = llm_mod.start_request_budget(12)
+    try:
+        with patch.object(llm_mod.time, "sleep"):
+            out = llm.generate_json("sys", "user", default_fallback={"x": 0})
+    finally:
+        llm_mod.end_request_budget(token)
+    models = llm.gemini_client.models
+    assert out == {"x": 0}
+    assert all(t <= 12_000 for t in models.timeouts)  # never waits past the budget
+    assert llm.last_usage["finish_reason"] == "FALLBACK"
+
+    token = llm_mod.start_request_budget(2)  # less than the minimum attempt time
+    try:
+        llm2 = _gemini_llm([])
+        llm2.generate_json("sys", "user", default_fallback={"x": 0})
+    finally:
+        llm_mod.end_request_budget(token)
+    assert llm2.gemini_client.models.calls == []
+
+
+def test_template_fallback_is_flagged_to_the_user():
+    from src.pipeline import AI_BUSY_WARNING, _fallback_warning
+
+    assert _fallback_warning([{"finish_reason": "STOP"}, {}]) == ""
+    assert (
+        _fallback_warning([{"finish_reason": "STOP"}, {"finish_reason": "FALLBACK"}])
+        == AI_BUSY_WARNING
+    )

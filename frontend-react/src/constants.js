@@ -111,6 +111,18 @@ export function formatApiErrorPayload(status, payload) {
       ? payload.detail
       : payload?.message || `Request failed with HTTP ${status}.`;
 
+  // Gateway / tunnel errors come back as an HTML page (e.g. Cloudflare 502/524); never dump it raw.
+  const isHtmlPage = /^\s*<(!doctype|html)/i.test(detailText) || /<\/html>/i.test(detailText);
+  if ([502, 503, 504, 524].includes(status) || isHtmlPage) {
+    return {
+      status,
+      title: `Server Busy or Timed Out (HTTP ${status})`,
+      message: "The AI took too long to answer. Please wait a minute and click Generate again.",
+      details: [],
+      variant: "warn",
+    };
+  }
+
   if (status === 429) {
     return {
       status,

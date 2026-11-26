@@ -99,8 +99,15 @@ export function App({ bootstrapOverride = null }) {
     setClipfalconHandoff(data.clipfalcon_handoff || null);
     if (data.quota_status) setQuotaStatus(data.quota_status);
     setRegenObjective(data.deliverable?.input_data?.objective || "");
+    const busyWarning = data.deliverable?.generation_warning;
     const liveWarning = data.deliverable?.research?.live_data_warning;
-    setError(liveWarning ? { title: "Live data not fetched", message: liveWarning, details: [], variant: "warn" } : null);
+    if (busyWarning) {
+      setError({ title: "AI was busy", message: busyWarning, details: liveWarning ? [liveWarning] : [], variant: "warn" });
+    } else if (liveWarning) {
+      setError({ title: "Live data not fetched", message: liveWarning, details: [], variant: "warn" });
+    } else {
+      setError(null);
+    }
   }
 
   async function executeScriptRequest(endpoint, body, nextLoadingLabel, fallbackTitle) {

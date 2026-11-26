@@ -5,6 +5,8 @@ import logging
 import os
 import re
 import threading
+import time
+from contextvars import ContextVar
 from typing import Any, Dict, Optional
 
 from src.config import (
@@ -71,6 +73,37 @@ def _estimate_tokens(text: str) -> int:
     tamil_chars = sum(1 for ch in text if "\u0b80" <= ch <= "\u0bff")
     other_chars = len(text) - tamil_chars
     return max(1, (tamil_chars // 2) + (other_chars // 4))
+
+
+# Wall-clock budget for one script request. Cloudflare drops requests after ~100s and
+# the PHP gateway after 120s, so a request must finish well inside that.
+# A ContextVar (not thread-local) so asyncio.to_thread workers see the request's deadline.
+_REQUEST_DEADLINE: ContextVar[Optional[float]] = ContextVar(
+    "scriptfalcon_request_deadline", default=None
+)
+GEMINI_ATTEMPT_TIMEOUT_S = float(os.getenv("GEMINI_ATTEMPT_TIMEOUT_S", "30"))
+_MIN_ATTEMPT_S = 5.0  # not worth starting a Gemini call with less time than this
+_BUSY_RETRY_PAUSE_S = 1.5
+# Backups after the configured model. Keep this list to models that exist for new keys.
+_GEMINI_BACKUP_MODELS = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+)
+
+
+def start_request_budget(seconds: float):
+    """Start a deadline for every LLM call made in this request; returns a reset token."""
+    return _REQUEST_DEADLINE.set(time.monotonic() + seconds)
+
+
+def end_request_budget(token) -> None:
+    _REQUEST_DEADLINE.reset(token)
+
+
+def _seconds_left() -> Optional[float]:
+    deadline = _REQUEST_DEADLINE.get()
+    return None if deadline is None else deadline - time.monotonic()
 
 
 class LLMClient:
@@ -210,23 +243,29 @@ class LLMClient:
 
         if self.provider == "gemini" and self.gemini_client:
             combined_prompt = f"{system_prompt}\n\nUSER REQUEST:\n{user_prompt}\n\nOutput strictly valid JSON only."
-            candidate_models = [
-                GEMINI_MODEL,
-                "gemini-3.5-flash-lite",
-                "gemini-2.5-flash",
-                "gemini-2.5-flash-lite",
-                "gemini-3.8-flash",
-                "gemini-3.6-flash",
-            ]
-            seen_models = set()
-            models_to_try = [
+            primary = GEMINI_MODEL or _GEMINI_BACKUP_MODELS[0]
+            seen_models = {primary}
+            backups = [
                 m
-                for m in candidate_models
-                if m and not (m in seen_models or seen_models.add(m))
+                for m in _GEMINI_BACKUP_MODELS
+                if not (m in seen_models or seen_models.add(m))
             ]
+            # The primary gets one quick retry: its busy spells (503) are usually seconds long.
+            models_to_try = [primary, primary, *backups]
 
             last_error = None
-            for model_name in models_to_try:
+            for attempt, model_name in enumerate(models_to_try):
+                left = _seconds_left()
+                if left is not None and left < _MIN_ATTEMPT_S:
+                    logger.warning(
+                        "Request time budget used up; skipping remaining Gemini attempts."
+                    )
+                    break
+                if attempt == 1:
+                    time.sleep(_BUSY_RETRY_PAUSE_S)
+                timeout_s = GEMINI_ATTEMPT_TIMEOUT_S
+                if left is not None:
+                    timeout_s = max(_MIN_ATTEMPT_S, min(timeout_s, left - 1.0))
                 try:
                     if hasattr(self.gemini_client, "models"):  # google-genai SDK
                         from google.genai import types
@@ -239,10 +278,12 @@ class LLMClient:
                                 )
                             except Exception:
                                 thinking_cfg = None
+                        http_opts = types.HttpOptions(timeout=int(timeout_s * 1000))
                         gen_config = types.GenerateContentConfig(
                             temperature=temp,
                             max_output_tokens=tokens_limit,
                             thinking_config=thinking_cfg,
+                            http_options=http_opts,
                         )
                         try:
                             response = self.gemini_client.models.generate_content(
@@ -262,6 +303,7 @@ class LLMClient:
                                     config=types.GenerateContentConfig(
                                         temperature=temp,
                                         max_output_tokens=tokens_limit,
+                                        http_options=http_opts,
                                     ),
                                 )
                             else:
@@ -302,7 +344,7 @@ class LLMClient:
                     err_str = str(e)
                     if "503" in err_str or "UNAVAILABLE" in err_str:
                         logger.warning(
-                            f"Model {model_name} temporarily busy (503). Trying alternative model..."
+                            f"Model {model_name} temporarily busy (503). Retrying / trying alternative model..."
                         )
                     elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                         logger.warning(

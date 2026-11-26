@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from src.agents.quality_agent import QualityAgent
@@ -14,10 +15,26 @@ from src.db import (
     DeliverableNotFoundError,
     build_dedup_key,
 )
-from src.llm import LLMClient
+from src.llm import LLMClient, end_request_budget, start_request_budget
 from src.models import FullDeliverable, ScriptInput
 
 logger = logging.getLogger(__name__)
+
+# Whole-request LLM time budget; keeps a run inside Cloudflare's ~100s and the gateway's 120s.
+PIPELINE_TIME_BUDGET_S = float(os.getenv("PIPELINE_TIME_BUDGET_S", "85"))
+
+AI_BUSY_WARNING = (
+    "Gemini was busy, so part of this script uses a basic template instead of AI writing. "
+    "Wait a minute and click Generate again for a full script."
+)
+
+
+def _fallback_warning(usages: List[Dict[str, Any]]) -> str:
+    """Warn when any step fell back to template text because the LLM did not answer."""
+    used_fallback = any(
+        str((u or {}).get("finish_reason", "")).upper() == "FALLBACK" for u in usages
+    )
+    return AI_BUSY_WARNING if used_fallback else ""
 
 
 def _aggregate_usage(usages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -60,7 +77,16 @@ class TamilReelScriptPipeline:
     def run(
         self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None
     ) -> FullDeliverable:
-        """Synchronously execute generation pipeline based on mode."""
+        """Synchronously execute generation pipeline based on mode, inside the time budget."""
+        token = start_request_budget(PIPELINE_TIME_BUDGET_S)
+        try:
+            return self._run_mode(inp, previous_deliverable)
+        finally:
+            end_request_budget(token)
+
+    def _run_mode(
+        self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None
+    ) -> FullDeliverable:
         logger.info(f"Running pipeline for topic: '{inp.topic}' | Mode: '{inp.mode}'")
 
         if inp.mode == "regenerate_hook":
@@ -85,7 +111,16 @@ class TamilReelScriptPipeline:
     async def arun(
         self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None
     ) -> FullDeliverable:
-        """Non-blocking async pipeline execution for FastAPI concurrent requests."""
+        """Non-blocking async pipeline execution, inside the time budget."""
+        token = start_request_budget(PIPELINE_TIME_BUDGET_S)
+        try:
+            return await self._arun_mode(inp, previous_deliverable)
+        finally:
+            end_request_budget(token)
+
+    async def _arun_mode(
+        self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None
+    ) -> FullDeliverable:
         logger.info(f"Async pipeline for topic: '{inp.topic}' | Mode: '{inp.mode}'")
 
         if inp.mode == "regenerate_hook":
@@ -321,13 +356,12 @@ class TamilReelScriptPipeline:
         logger.info("[Step 3/3] Executing 7-Criteria Quality Compliance Agent...")
         qc, certified_script = quality_agent.execute(inp, research, draft)
 
-        usage_summary = _aggregate_usage(
-            [
-                research_agent.last_usage,
-                script_agent.last_usage,
-                quality_agent.last_usage,
-            ]
-        )
+        usages = [
+            research_agent.last_usage,
+            script_agent.last_usage,
+            quality_agent.last_usage,
+        ]
+        usage_summary = _aggregate_usage(usages)
 
         return FullDeliverable(
             input_data=inp,
@@ -335,6 +369,7 @@ class TamilReelScriptPipeline:
             script=certified_script,
             quality_check=qc,
             client_id=inp.client_id,
+            generation_warning=_fallback_warning(usages),
             **usage_summary,
         )
 
@@ -351,13 +386,12 @@ class TamilReelScriptPipeline:
             quality_agent.execute, inp, research, draft
         )
 
-        usage_summary = _aggregate_usage(
-            [
-                research_agent.last_usage,
-                script_agent.last_usage,
-                quality_agent.last_usage,
-            ]
-        )
+        usages = [
+            research_agent.last_usage,
+            script_agent.last_usage,
+            quality_agent.last_usage,
+        ]
+        usage_summary = _aggregate_usage(usages)
 
         return FullDeliverable(
             input_data=inp,
@@ -365,6 +399,7 @@ class TamilReelScriptPipeline:
             script=certified_script,
             quality_check=qc,
             client_id=inp.client_id,
+            generation_warning=_fallback_warning(usages),
             **usage_summary,
         )
 
@@ -381,7 +416,8 @@ class TamilReelScriptPipeline:
             inp, updated_draft, mode="regenerate_hook"
         )
 
-        usage_summary = _aggregate_usage([script_agent.last_usage])
+        usages = [script_agent.last_usage]
+        usage_summary = _aggregate_usage(usages)
 
         return FullDeliverable(
             input_data=inp,
@@ -389,6 +425,7 @@ class TamilReelScriptPipeline:
             script=certified_script,
             quality_check=qc,
             client_id=inp.client_id or base.client_id,
+            generation_warning=_fallback_warning(usages),
             **usage_summary,
         )
 
@@ -403,7 +440,8 @@ class TamilReelScriptPipeline:
             inp, updated_draft, mode="regenerate_cta"
         )
 
-        usage_summary = _aggregate_usage([script_agent.last_usage])
+        usages = [script_agent.last_usage]
+        usage_summary = _aggregate_usage(usages)
 
         return FullDeliverable(
             input_data=inp,
@@ -411,5 +449,6 @@ class TamilReelScriptPipeline:
             script=certified_script,
             quality_check=qc,
             client_id=inp.client_id or base.client_id,
+            generation_warning=_fallback_warning(usages),
             **usage_summary,
         )

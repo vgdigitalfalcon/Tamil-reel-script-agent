@@ -494,6 +494,7 @@ class FullDeliverable(BaseModel):
     output_tokens: int = 0
     tokens_used: int = 0
     cost_inr: float = 0.0
+    generation_warning: str = ""  # set when the LLM was busy and template text was used
 
     @field_validator("input_data", "research", "script", "quality_check", mode="before")
     @classmethod
@@ -557,6 +558,8 @@ class FullDeliverable(BaseModel):
         lines.append("")
 
         lines.append("## 2. Research Summary")
+        if self.generation_warning:
+            lines.append(f"> **WARNING:** {self.generation_warning}\n")
         if self.research.live_data_warning:
             lines.append(f"> **WARNING:** {self.research.live_data_warning}\n")
         lines.append("### Key Findings:")

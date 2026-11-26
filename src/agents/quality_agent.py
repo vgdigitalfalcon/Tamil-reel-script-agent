@@ -1240,6 +1240,8 @@ def _merge_usage(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any
         4,
     )
     merged["model_used"] = merged.get("model_used") or second.get("model_used", "")
+    if str(second.get("finish_reason", "")).upper() == "FALLBACK":
+        merged["finish_reason"] = "FALLBACK"
     return merged
 
 
