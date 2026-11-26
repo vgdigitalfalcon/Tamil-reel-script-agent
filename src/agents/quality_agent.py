@@ -18,6 +18,7 @@ from src.config import (
     DISRESPECTFUL_SLANG_BLACKLIST,
     TWO_PERSON_SKIT_MARKERS,
     RESPECTFUL_ADDRESS_MARKERS,
+    VOCAL_MODULATION_MARKERS,
     get_word_count_limits,
 )
 from src.prompts import QUALITY_CHECK_SYSTEM_PROMPT
@@ -790,6 +791,102 @@ def replace_sen_tamil_with_spoken(text: str) -> Tuple[str, List[str]]:
     return "".join(out_parts), converted
 
 
+# Non-Tamil Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Telugu, Kannada,
+# Malayalam, Sinhala). LLMs occasionally leak these into Tamil/Tanglish output (e.g. Bengali "লাভ").
+_FOREIGN_INDIC_RANGES = "\u0900-\u0B7F\u0C00-\u0DFF"
+# Any word containing at least one foreign-Indic letter (used for detection / flagging).
+_FOREIGN_INDIC_WORD_RE = re.compile(rf"[^\s\[\]]*[{_FOREIGN_INDIC_RANGES}][^\s\[\]]*")
+# A word made up *entirely* of foreign-Indic letters (plus combining marks), with the one
+# space before it. Only these are deleted; a mixed word (e.g. one Telugu letter inside a
+# Tamil word) is left in place and flagged, because deleting it would drop the verb.
+_PURE_FOREIGN_WORD_RE = re.compile(
+    rf"[ \t]?(?<![^\s\[\]])[{_FOREIGN_INDIC_RANGES}]+(?![^\s\[\].,!?;:'\"])"
+)
+
+_ALLOWED_CUES = {m.strip("[]").lower(): m for m in VOCAL_MODULATION_MARKERS}
+# Common LLM-invented cues mapped onto the approved teleprompter set.
+_CUE_SYNONYMS = {
+    "bold": "[Stress]",
+    "emphasis": "[Stress]",
+    "emphatic": "[Stress]",
+    "excited": "[Stress]",
+    "excited tone": "[Stress]",
+    "confident tone": "[Stress]",
+    "beat": "[Pause]",
+    "short pause": "[Pause]",
+    "long pause": "[Pause]",
+    "sigh": "[Pause]",
+    "frustrated sigh": "[Pause]",
+    "slow": "[Slow down]",
+    "slowly": "[Slow down]",
+    "question": "[Question tone]",
+    "questioning tone": "[Question tone]",
+    "curious": "[Curious tone]",
+    "eye contact": "[Direct eye contact]",
+    "look at camera": "[Direct eye contact]",
+}
+# Script section / hook-type labels the LLM sometimes echoes into spoken text. A presenter
+# would read these aloud from the teleprompter, so they are removed.
+_SECTION_LABELS = {
+    "hook", "context", "body", "engagement", "cta", "call to action", "caption",
+    "bold statement", "pain-point", "pain point", "question hook", "intro", "outro",
+}
+_CUE_RE = re.compile(r"\[([^\[\]]{1,40})\]")
+
+
+def find_foreign_indic_words(text: str) -> List[str]:
+    """Return words written in a non-Tamil Indic script (Bengali, Devanagari, Telugu, ...)."""
+    return _FOREIGN_INDIC_WORD_RE.findall(text or "")
+
+
+def strip_foreign_indic_words(text: str) -> Tuple[str, List[str]]:
+    """Delete words written wholly in a non-Tamil Indic script (with their leading space).
+
+    Mixed words are kept (the deterministic audit still flags them); surrounding text and
+    punctuation are not touched.
+    """
+    if not text:
+        return text, []
+    removed: List[str] = []
+
+    def _drop(match: re.Match) -> str:
+        removed.append(match.group(0).strip())
+        return ""
+
+    return _PURE_FOREIGN_WORD_RE.sub(_drop, text), removed
+
+
+def normalize_modulation_cues(text: str) -> Tuple[str, List[str]]:
+    """Map invented cues (e.g. [Bold]) to approved ones and drop section labels ([Hook], [CTA]).
+
+    Any other bracketed text (e.g. [Smile], a bracketed Tamil phrase) is left untouched.
+    """
+    changed: List[str] = []
+
+    def _repl(match: re.Match) -> str:
+        key = " ".join(match.group(1).lower().split())
+        if key in _ALLOWED_CUES:
+            canonical = _ALLOWED_CUES[key]
+            if canonical != match.group(0):
+                changed.append(match.group(0))
+            return canonical
+        if key in _CUE_SYNONYMS:
+            changed.append(match.group(0))
+            return _CUE_SYNONYMS[key]
+        if key in _SECTION_LABELS:
+            changed.append(match.group(0))
+            return ""
+        return match.group(0)
+
+    if not text:
+        return text, changed
+    result = _CUE_RE.sub(_repl, text)
+    if changed:
+        # Only collapse the gap left where a label was removed.
+        result = re.sub(r"(?<=\S) {2,}(?=\S)", " ", result).strip()
+    return result, changed
+
+
 def run_deterministic_audit(draft: ScriptDraft, inp: ScriptInput) -> Dict[str, Any]:
     """Run deterministic pre/post checks across all script text and hooks."""
     spoken_text = " ".join(
@@ -817,6 +914,9 @@ def run_deterministic_audit(draft: ScriptDraft, inp: ScriptInput) -> Dict[str, A
         )
     else:
         tamil_issues = check_tamil_unicode_integrity(all_text)
+    foreign_words = find_foreign_indic_words(all_text)
+    if foreign_words:
+        tamil_issues = tamil_issues + [f"Non-Tamil Indic script detected: {foreign_words[:3]}"]
     modulation_cues = draft.extract_modulation_cues()
     latin_words_in_tamil = find_non_bracketed_latin_words(spoken_text) if inp.tone == "Tamil" else []
     romanized_tamil_words = (
@@ -881,6 +981,31 @@ def _apply_mode_post_cleanup(
                 c.text = nc
                 changed = True
         return changed
+
+    # 0a. Strip words leaked in other Indic scripts (Bengali, Devanagari, ...) — all tones.
+    detected_foreign: List[str] = []
+
+    def _foreign_fn(txt: str) -> str:
+        res, found = strip_foreign_indic_words(txt)
+        detected_foreign.extend(found)
+        return res
+
+    if _transform_all_fields(_foreign_fn):
+        sample = ", ".join(detected_foreign[:6])
+        fixes_applied.append(f"Removed words written in a non-Tamil Indic script: {sample}.")
+        flag_notes.append(f"Detected non-Tamil Indic script ({sample}); removed from script.")
+
+    # 0b. Normalise vocal modulation cues to the approved teleprompter set — all tones.
+    detected_cues: List[str] = []
+
+    def _cue_fn(txt: str) -> str:
+        res, changed_cues = normalize_modulation_cues(txt)
+        detected_cues.extend(changed_cues)
+        return res
+
+    if _transform_all_fields(_cue_fn):
+        sample = ", ".join(dict.fromkeys(detected_cues))
+        fixes_applied.append(f"Normalised non-standard vocal cues to the approved set: {sample}.")
 
     if inp.tone in ("Tamil", "conversational spoken Tamil"):
         # 1. Replace raw pasted English Conversion Objective in CTA / CTA options with natural Tamil

@@ -305,7 +305,7 @@ def test_crm_brand_dna_fast_path_regeneration_and_zero_llm_audit():
     regen_inp = full_del.input_data.model_copy(deep=True)
     regen_inp.mode = "regenerate_hook"
     with patch("src.agents.research_agent.run_research_queries") as mock_search_regen, \
-         patch.object(pipeline.quality_agent, "execute", side_effect=AssertionError("Step 3 LLM must be skipped!")):
+         patch("src.agents.quality_agent.QualityAgent.execute", side_effect=AssertionError("Step 3 LLM must be skipped!")):
         hook_del = pipeline.run_for_crm(
             inp=regen_inp,
             db=db,
@@ -354,7 +354,7 @@ def test_crm_dual_quotas_low_balance_warning_daily_limit_and_dedup_lock():
     # 4. Failed run refunds reservation, daily run count, AND releases dedup lock so user can retry immediately
     inp_fail = ScriptInput.create_with_defaults(topic="Failing pipeline test", duration=30, tone="Tanglish")
     runs_before = db.get_user_daily_runs("emp_fail")
-    with patch.object(pipeline.research_agent, "execute", side_effect=RuntimeError("Simulated LLM crash")):
+    with patch("src.agents.research_agent.ResearchAgent.execute", side_effect=RuntimeError("Simulated LLM crash")):
         with pytest.raises(RuntimeError):
             pipeline.run_for_crm(inp=inp_fail, db=db, client_id="client_quota_test", user_id="emp_fail")
     assert db.get_user_daily_runs("emp_fail") == runs_before

@@ -202,9 +202,19 @@ Generate 3 brand new punchy, single-narrator respectful hooks (question, bold st
             )
             for h in data.get("hooks", [])
         ]
-        rec_text = data.get("recommended_hook", new_hooks[0].text if new_hooks else draft.hook)
-
+        new_hooks = [h for h in new_hooks if h.text.strip()]
         updated_draft = draft.model_copy(deep=True)
+        if not new_hooks:
+            # Malformed/empty LLM output: keep the existing hooks rather than blanking them.
+            return updated_draft
+        # Exactly one hook is flagged, and it is the one used as the active hook.
+        wanted = (data.get("recommended_hook") or "").strip()
+        chosen = next((h for h in new_hooks if wanted and h.text.strip() == wanted), None)
+        chosen = chosen or next((h for h in new_hooks if h.is_recommended), new_hooks[0])
+        for h in new_hooks:
+            h.is_recommended = h is chosen
+        rec_text = chosen.text
+
         updated_draft.hooks = new_hooks
         updated_draft.hook = rec_text
         return updated_draft

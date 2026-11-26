@@ -37,9 +37,20 @@ class TamilReelScriptPipeline:
 
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.llm = llm_client or LLMClient()
-        self.research_agent = ResearchAgent(self.llm)
-        self.script_agent = ScriptAgent(self.llm)
-        self.quality_agent = QualityAgent(self.llm)
+
+    # Agents keep per-run state (last_usage), so each run gets its own instances.
+    # The API shares one pipeline across concurrent requests; shared agents would mix up costs.
+    @property
+    def research_agent(self) -> ResearchAgent:
+        return ResearchAgent(self.llm)
+
+    @property
+    def script_agent(self) -> ScriptAgent:
+        return ScriptAgent(self.llm)
+
+    @property
+    def quality_agent(self) -> QualityAgent:
+        return QualityAgent(self.llm)
 
     def run(self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None) -> FullDeliverable:
         """Synchronously execute generation pipeline based on mode."""
@@ -248,21 +259,18 @@ class TamilReelScriptPipeline:
 
     def _run_full(self, inp: ScriptInput) -> FullDeliverable:
         """Standard 3-Step Execution: Research -> Script -> 7-Criteria LLM Quality Audit."""
+        research_agent, script_agent, quality_agent = self.research_agent, self.script_agent, self.quality_agent
         logger.info("[Step 1/3] Executing Research Agent...")
-        research = self.research_agent.execute(inp)
+        research = research_agent.execute(inp)
 
         logger.info("[Step 2/3] Executing Script Agent for hooks and humanized script...")
-        draft = self.script_agent.execute(inp, research)
+        draft = script_agent.execute(inp, research)
 
         logger.info("[Step 3/3] Executing 7-Criteria Quality Compliance Agent...")
-        qc, certified_script = self.quality_agent.execute(inp, research, draft)
+        qc, certified_script = quality_agent.execute(inp, research, draft)
 
         usage_summary = _aggregate_usage(
-            [
-                self.research_agent.last_usage,
-                self.script_agent.last_usage,
-                self.quality_agent.last_usage,
-            ]
+            [research_agent.last_usage, script_agent.last_usage, quality_agent.last_usage]
         )
 
         return FullDeliverable(
@@ -276,16 +284,13 @@ class TamilReelScriptPipeline:
 
     async def _arun_full(self, inp: ScriptInput) -> FullDeliverable:
         """Non-blocking async 3-Step Execution."""
-        research = await self.research_agent.aexecute(inp)
-        draft = await asyncio.to_thread(self.script_agent.execute, inp, research)
-        qc, certified_script = await asyncio.to_thread(self.quality_agent.execute, inp, research, draft)
+        research_agent, script_agent, quality_agent = self.research_agent, self.script_agent, self.quality_agent
+        research = await research_agent.aexecute(inp)
+        draft = await asyncio.to_thread(script_agent.execute, inp, research)
+        qc, certified_script = await asyncio.to_thread(quality_agent.execute, inp, research, draft)
 
         usage_summary = _aggregate_usage(
-            [
-                self.research_agent.last_usage,
-                self.script_agent.last_usage,
-                self.quality_agent.last_usage,
-            ]
+            [research_agent.last_usage, script_agent.last_usage, quality_agent.last_usage]
         )
 
         return FullDeliverable(
@@ -300,10 +305,11 @@ class TamilReelScriptPipeline:
     def _regenerate_hook(self, inp: ScriptInput, base: FullDeliverable) -> FullDeliverable:
         """Fast-path hook regeneration: skips Step 1 search & Step 3 LLM audit (~75% token reduction)."""
         logger.info("Executing fast-path regeneration for HOOKS (0-LLM Python audit)...")
-        updated_draft = self.script_agent.regenerate_hooks(inp, base.script)
+        script_agent = self.script_agent
+        updated_draft = script_agent.regenerate_hooks(inp, base.script)
         qc, certified_script = self.quality_agent.audit_fast_path(inp, updated_draft, mode="regenerate_hook")
 
-        usage_summary = _aggregate_usage([self.script_agent.last_usage])
+        usage_summary = _aggregate_usage([script_agent.last_usage])
 
         return FullDeliverable(
             input_data=inp,
@@ -317,10 +323,11 @@ class TamilReelScriptPipeline:
     def _regenerate_cta(self, inp: ScriptInput, base: FullDeliverable) -> FullDeliverable:
         """Fast-path CTA regeneration: skips Step 1 search & Step 3 LLM audit (~75% token reduction)."""
         logger.info("Executing fast-path regeneration for CTA (0-LLM Python audit)...")
-        updated_draft = self.script_agent.regenerate_cta(inp, base.script)
+        script_agent = self.script_agent
+        updated_draft = script_agent.regenerate_cta(inp, base.script)
         qc, certified_script = self.quality_agent.audit_fast_path(inp, updated_draft, mode="regenerate_cta")
 
-        usage_summary = _aggregate_usage([self.script_agent.last_usage])
+        usage_summary = _aggregate_usage([script_agent.last_usage])
 
         return FullDeliverable(
             input_data=inp,

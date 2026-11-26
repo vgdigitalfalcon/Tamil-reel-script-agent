@@ -125,6 +125,14 @@ DATABASE_URL = _get_setting("DATABASE_URL", "")
 SQLITE_DB_PATH = Path(_get_setting("SQLITE_DB_PATH", str(ROOT_DIR / "scriptfalcon.db")))
 CRM_JWT_SECRET = _get_setting("CRM_JWT_SECRET", "vg-digital-falcon-dev-secret-change-in-prod")
 SUPABASE_JWT_SECRET = _get_setting("SUPABASE_JWT_SECRET", "")
+CRM_ENV = _get_setting("CRM_ENV", "development").strip().lower()
+
+_DEFAULT_JWT_SECRETS = {"vg-digital-falcon-dev-secret-change-in-prod", "change-this-in-production"}
+if CRM_ENV == "production" and not SUPABASE_JWT_SECRET and CRM_JWT_SECRET in _DEFAULT_JWT_SECRETS:
+    raise RuntimeError(
+        "CRM_ENV=production but CRM_JWT_SECRET is a public default. "
+        "Set a long random CRM_JWT_SECRET (or SUPABASE_JWT_SECRET) before starting."
+    )
 CLIPFALCON_WEBHOOK_URL = _get_setting("CLIPFALCON_WEBHOOK_URL", "")
 
 # Centralized Guardrail Lists (Single Source of Truth for Prompts & Quality Auditor)

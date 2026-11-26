@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import os
+import threading
 from typing import Dict, Any, Optional
 from src.config import (
     LLM_PROVIDER,
@@ -79,7 +80,7 @@ class LLMClient:
         self.gemini_client = None
         self.anthropic_client = None
         self.openai_client = None
-        self.last_usage: Dict[str, Any] = {}
+        self._usage_local = threading.local()
 
         # 1. Google Gemini
         if GEMINI_API_KEY and self.provider in ("gemini", "auto"):
@@ -122,6 +123,19 @@ class LLMClient:
                 logger.info("No active API keys found; activating smart simulation generator.")
             self.provider = "simulation"
 
+    @property
+    def last_usage(self) -> Dict[str, Any]:
+        """Usage of the most recent call made *on the current thread*.
+
+        Thread-local so concurrent API requests sharing one client never read each other's
+        token counts (which would mis-bill CRM quotas).
+        """
+        return getattr(self._usage_local, "value", {})
+
+    @last_usage.setter
+    def last_usage(self, value: Dict[str, Any]) -> None:
+        self._usage_local.value = value
+
     def _record_usage(
         self,
         model_used: str,
@@ -130,9 +144,15 @@ class LLMClient:
         finish_reason: str = "STOP",
     ) -> Dict[str, Any]:
         """Store and return normalized usage and cost metadata."""
+        # SDK enums stringify as "FinishReason.MAX_TOKENS"; normalise to the bare member name.
+        finish_reason = getattr(finish_reason, "name", None) or str(finish_reason).rsplit(".", 1)[-1]
+        # A FALLBACK means the real LLM failed and canned template text was used: it costs
+        # nothing and must not count toward a user's daily token limit either.
+        if finish_reason.upper() == "FALLBACK":
+            input_tokens = output_tokens = 0
         total_tokens = max(0, input_tokens) + max(0, output_tokens)
-        cost_inr = calculate_cost_inr(model_used, input_tokens, output_tokens)
-        is_truncated = str(finish_reason).upper() in ("MAX_TOKENS", "LENGTH", "MAX_TOKEN")
+        cost_inr = calculate_cost_inr(model_used, input_tokens, output_tokens) if total_tokens else 0.0
+        is_truncated = finish_reason.upper() in ("MAX_TOKENS", "LENGTH", "MAX_TOKEN")
         if is_truncated:
             logger.warning(f"LLM response truncated ({finish_reason}) on model {model_used}.")
         usage = {
@@ -232,10 +252,15 @@ class LLMClient:
                         logger.warning(f"Model {model_name} temporarily busy (503). Trying alternative model...")
                     elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                         logger.warning(f"Model {model_name} rate limited (429). Trying alternative model...")
+                    else:
+                        logger.warning(f"Model {model_name} failed ({type(e).__name__}: {err_str[:300]}). Trying alternative model...")
                     continue
 
             if last_error:
-                logger.error(f"Gemini API call failed: {last_error}")
+                logger.error(
+                    f"All Gemini models failed; {'using template fallback (not billed)' if default_fallback is not None else 'raising'}. "
+                    f"Last error: {last_error}"
+                )
             if default_fallback is not None:
                 in_tok = _estimate_tokens(combined_prompt)
                 out_tok = _estimate_tokens(json.dumps(default_fallback, ensure_ascii=False))
