@@ -13,3 +13,4 @@ php/assets/
 *.sqlite3
 .pytest_cache/
 .ruff_cache/
+backups/

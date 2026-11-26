@@ -1,7 +1,7 @@
 # Full local/VPS stack: Postgres + FastAPI + PHP gateway (React UI)
 #   docker compose up -d --build
 #   UI (employee login): http://localhost:8080
-#   API + basic UI:      http://localhost:8000   (docs at /docs)
+#   API + basic UI:      http://localhost:8000   (this machine only; docs at /docs)
 
 services:
   db:
@@ -31,8 +31,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Bound to localhost only: standalone endpoints are unauthenticated and spend LLM credits.
+    # Public traffic should go through the PHP gateway (port 8080), which requires employee login.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   web:
     build:

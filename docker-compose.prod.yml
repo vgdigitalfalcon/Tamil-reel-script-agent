@@ -1,0 +1,40 @@
+# Production override: adds Caddy (automatic HTTPS) in front of the PHP gateway.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Requires DOMAIN in .env (e.g. scriptfalcon.duckdns.org).
+
+services:
+  api:
+    environment:
+      # Forced, not read from .env: production disables the demo passcode login and
+      # makes the API refuse to start with the public default JWT secret.
+      CRM_ENV: production
+
+  web:
+    # Only reachable through Caddy in production.
+    ports: !reset []
+    environment:
+      CRM_ENV: production
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to your public hostname, e.g. scriptfalcon.duckdns.org}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

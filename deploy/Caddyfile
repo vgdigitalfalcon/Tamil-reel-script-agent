@@ -1,0 +1,18 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy web:80 {
+		# Script generation can take 20-60s; PHP proxy itself times out at 120s.
+		transport http {
+			response_header_timeout 150s
+		}
+	}
+}

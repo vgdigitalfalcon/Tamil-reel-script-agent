@@ -14,6 +14,7 @@ RUN mkdir -p /build/php && npm run build
 FROM php:8.3-apache
 
 # Production PHP settings; hide version banners.
+# (zz- prefix so it loads after Debian security.conf, which would otherwise override ServerTokens.)
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && { \
         echo 'expose_php = Off'; \
@@ -25,14 +26,16 @@ RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
         echo 'ServerTokens Prod'; \
         echo 'ServerSignature Off'; \
         echo 'Timeout 150'; \
-    } > /etc/apache2/conf-available/scriptfalcon.conf \
-    && a2enconf scriptfalcon
+        echo '# Behind Caddy (TLS ends there): mark request as HTTPS so session cookies get Secure.'; \
+        echo 'SetEnvIf X-Forwarded-Proto "^https$" HTTPS=on'; \
+    } > /etc/apache2/conf-available/zz-scriptfalcon.conf \
+    && a2enconf zz-scriptfalcon
 
 COPY php/index.php php/api-proxy.php php/auth-config.php /var/www/html/
 COPY --from=frontend /build/php/assets /var/www/html/assets
 
 # Block direct web access to the shared config include; keep web files read-only.
-RUN printf '<Files "auth-config.php">\n  Require all denied\n</Files>\n' >> /etc/apache2/conf-available/scriptfalcon.conf \
+RUN printf '<Files "auth-config.php">\n  Require all denied\n</Files>\n' >> /etc/apache2/conf-available/zz-scriptfalcon.conf \
     && chown -R root:root /var/www/html \
     && chmod -R a+rX,go-w /var/www/html
 
