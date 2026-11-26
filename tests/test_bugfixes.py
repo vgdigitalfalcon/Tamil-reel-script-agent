@@ -28,7 +28,9 @@ def test_last_usage_is_isolated_per_thread():
 
     def worker(name, fallback):
         barrier.wait()
-        llm.generate_json("sys", "user " * (50 if name == "a" else 500), default_fallback=fallback)
+        llm.generate_json(
+            "sys", "user " * (50 if name == "a" else 500), default_fallback=fallback
+        )
         barrier.wait()  # both calls finished before either reads
         results[name] = llm.last_usage["input_tokens"]
 
@@ -44,13 +46,17 @@ def test_last_usage_is_isolated_per_thread():
 
 
 def test_invented_cues_are_normalised():
-    text, changed = normalize_modulation_cues("[Bold] Google-la [frustrated sigh] illa [Pause]")
+    text, changed = normalize_modulation_cues(
+        "[Bold] Google-la [frustrated sigh] illa [Pause]"
+    )
     assert text == "[Stress] Google-la [Pause] illa [Pause]"
     assert "[Bold]" in changed
 
 
 def test_section_labels_removed_but_other_brackets_kept():
-    text, changed = normalize_modulation_cues("[Hook] [Smile] Hello [Laugh] [கவனிங்க] there [CTA]")
+    text, changed = normalize_modulation_cues(
+        "[Hook] [Smile] Hello [Laugh] [கவனிங்க] there [CTA]"
+    )
     assert text == "[Smile] Hello [Laugh] [கவனிங்க] there"
     assert changed == ["[Hook]", "[CTA]"]
 
@@ -105,7 +111,7 @@ class _FakeStream:
 
     def iter_bytes(self):
         for i in range(0, len(self._body), self._chunk):
-            piece = self._body[i:i + self._chunk]
+            piece = self._body[i : i + self._chunk]
             self.bytes_read += len(piece)
             yield piece
 
@@ -115,20 +121,33 @@ def _fake_resolve(url):
 
     if "127.0.0.1" in url:
         return None
-    return _PinnedTarget("https://93.184.215.14/", "public.example.com", "public.example.com")
+    return _PinnedTarget(
+        "https://93.184.215.14/", "public.example.com", "public.example.com"
+    )
 
 
 def test_reference_url_redirect_to_internal_is_blocked():
-    with patch("src.search_tool._resolve_public", side_effect=_fake_resolve), \
-         patch("httpx.Client.stream", return_value=_FakeStream(redirect_to="http://127.0.0.1/admin")) as mock_stream:
+    with (
+        patch("src.search_tool._resolve_public", side_effect=_fake_resolve),
+        patch(
+            "httpx.Client.stream",
+            return_value=_FakeStream(redirect_to="http://127.0.0.1/admin"),
+        ) as mock_stream,
+    ):
         assert fetch_reference_url("https://public.example.com/") is None
-        assert mock_stream.call_count == 1  # never requested the internal redirect target
+        assert (
+            mock_stream.call_count == 1
+        )  # never requested the internal redirect target
 
 
 def test_reference_fetch_connects_to_vetted_ip_with_original_host():
-    page = _FakeStream(body=b"<html><title>Offer</title><body>Clinic offer details</body></html>")
-    with patch("src.search_tool._resolve_public", side_effect=_fake_resolve), \
-         patch("httpx.Client.stream", return_value=page) as mock_stream:
+    page = _FakeStream(
+        body=b"<html><title>Offer</title><body>Clinic offer details</body></html>"
+    )
+    with (
+        patch("src.search_tool._resolve_public", side_effect=_fake_resolve),
+        patch("httpx.Client.stream", return_value=page) as mock_stream,
+    ):
         result = fetch_reference_url("https://public.example.com/")
     method, url = mock_stream.call_args.args
     kwargs = mock_stream.call_args.kwargs
@@ -142,10 +161,14 @@ def test_reference_fetch_stops_reading_at_size_cap():
     from src.search_tool import _MAX_FETCH_BYTES
 
     huge = _FakeStream(body=b"<p>" + b"x" * (_MAX_FETCH_BYTES * 3), chunk=100_000)
-    with patch("src.search_tool._resolve_public", side_effect=_fake_resolve), \
-         patch("httpx.Client.stream", return_value=huge):
+    with (
+        patch("src.search_tool._resolve_public", side_effect=_fake_resolve),
+        patch("httpx.Client.stream", return_value=huge),
+    ):
         fetch_reference_url("https://public.example.com/")
-    assert huge.bytes_read < _MAX_FETCH_BYTES + 100_000  # stopped early, didn't buffer 6 MB
+    assert (
+        huge.bytes_read < _MAX_FETCH_BYTES + 100_000
+    )  # stopped early, didn't buffer 6 MB
 
 
 def test_llm_failure_fallback_is_not_billed():
@@ -156,8 +179,14 @@ def test_llm_failure_fallback_is_not_billed():
 
 
 def test_fallback_counts_zero_tokens_toward_daily_limit():
-    meta = LLMClient(provider="simulation")._record_usage("simulation", 5000, 1500, "FALLBACK")
-    assert meta["total_tokens"] == 0 and meta["input_tokens"] == 0 and meta["output_tokens"] == 0
+    meta = LLMClient(provider="simulation")._record_usage(
+        "simulation", 5000, 1500, "FALLBACK"
+    )
+    assert (
+        meta["total_tokens"] == 0
+        and meta["input_tokens"] == 0
+        and meta["output_tokens"] == 0
+    )
 
 
 def test_regenerated_hook_matches_single_recommended_flag():
@@ -166,11 +195,19 @@ def test_regenerated_hook_matches_single_recommended_flag():
 
     llm = LLMClient(provider="simulation")
     reply = {
-        "hooks": [{"text": "Hook one", "type": "question"}, {"text": "Hook two"}, {"text": "Hook three"}],
+        "hooks": [
+            {"text": "Hook one", "type": "question"},
+            {"text": "Hook two"},
+            {"text": "Hook three"},
+        ],
         "recommended_hook": "Hook three",
     }
-    inp = ScriptInput.create_with_defaults(topic="Hook consistency test topic", tone="Tanglish")
-    draft = ScriptDraft(hook="old", hooks=[], body_points=["point"], context="", engagement="", cta="")
+    inp = ScriptInput.create_with_defaults(
+        topic="Hook consistency test topic", tone="Tanglish"
+    )
+    draft = ScriptDraft(
+        hook="old", hooks=[], body_points=["point"], context="", engagement="", cta=""
+    )
     with patch.object(llm, "generate_json", return_value=reply):
         updated = ScriptAgent(llm).regenerate_hooks(inp, draft)
     flagged = [h.text for h in updated.hooks if h.is_recommended]

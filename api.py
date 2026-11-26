@@ -24,8 +24,8 @@ from src.config import (
     OPENAI_API_KEY,
 )
 from src.db import (
-    CRMDatabase,
     ClientNotFoundError,
+    CRMDatabase,
     DailyLimitExceededError,
     DeliverableNotFoundError,
     DuplicateRequestError,
@@ -115,7 +115,9 @@ class CRMGenerateRequest(BaseModel):
     client_id: str = Field(..., min_length=1, max_length=100)
     topic: str = Field(..., min_length=5, max_length=250)
     duration: Literal[30, 45, 60] = 30
-    tone: Literal["Tanglish", "conversational spoken Tamil", "Tamil", "English"] = "conversational spoken Tamil"
+    tone: Literal["Tanglish", "conversational spoken Tamil", "Tamil", "English"] = (
+        "conversational spoken Tamil"
+    )
     objective: str = Field(default="awareness", max_length=120)
     platform: str = Field(default="Instagram Reels", max_length=50)
     audience: Optional[str] = Field(default=None, max_length=150)
@@ -286,7 +288,11 @@ def list_recent_scripts(limit: int = 5):
     return {"items": items}
 
 
-@app.get("/api/v1/scripts/recent/{stem}", response_model=GenerateResponse, tags=["Script Generation"])
+@app.get(
+    "/api/v1/scripts/recent/{stem}",
+    response_model=GenerateResponse,
+    tags=["Script Generation"],
+)
 def get_recent_script(stem: str):
     """Load a saved deliverable by ID (database) or by bundled sample file stem."""
     safe_stem = Path(stem).name
@@ -298,7 +304,9 @@ def get_recent_script(stem: str):
     if deliverable is None:
         target = DELIVERABLES_DIR / f"{safe_stem}.json"
         if not target.exists():
-            raise HTTPException(status_code=404, detail=f"Saved script '{safe_stem}' not found.")
+            raise HTTPException(
+                status_code=404, detail=f"Saved script '{safe_stem}' not found."
+            )
         deliverable = FullDeliverable.load_from_json(target)
     return GenerateResponse(
         success=True,
@@ -392,9 +400,13 @@ def _handle_crm_exception(exc: Exception) -> None:
     if isinstance(exc, (ClientNotFoundError, DeliverableNotFoundError)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, InsufficientQuotaError):
-        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc)
+        )
     if isinstance(exc, DailyLimitExceededError):
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+        )
     if isinstance(exc, DuplicateRequestError):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     raise HTTPException(
@@ -434,7 +446,9 @@ async def crm_generate_script(
             user_id=user.user_id,
             is_admin=(user.role == "admin"),
         )
-        quota_status = await asyncio.to_thread(db.get_quota_status, payload.client_id, user.user_id)
+        quota_status = await asyncio.to_thread(
+            db.get_quota_status, payload.client_id, user.user_id
+        )
         return CRMScriptResponse(
             success=True,
             deliverable_id=deliverable.deliverable_id or "",
@@ -457,10 +471,17 @@ async def crm_regenerate_hook(
 ):
     """Fast-path hook regeneration (~75% fewer tokens; 0-LLM Python audit)."""
     try:
-        base_deliverable = await asyncio.to_thread(db.get_deliverable, payload.deliverable_id)
+        base_deliverable = await asyncio.to_thread(
+            db.get_deliverable, payload.deliverable_id
+        )
         if not base_deliverable:
-            raise DeliverableNotFoundError(f"Deliverable '{payload.deliverable_id}' not found.")
-        if base_deliverable.client_id and base_deliverable.client_id != payload.client_id:
+            raise DeliverableNotFoundError(
+                f"Deliverable '{payload.deliverable_id}' not found."
+            )
+        if (
+            base_deliverable.client_id
+            and base_deliverable.client_id != payload.client_id
+        ):
             raise DeliverableNotFoundError(
                 f"Deliverable '{payload.deliverable_id}' does not belong to client '{payload.client_id}'."
             )
@@ -476,7 +497,9 @@ async def crm_regenerate_hook(
             previous_deliverable=base_deliverable,
             is_admin=(user.role == "admin"),
         )
-        quota_status = await asyncio.to_thread(db.get_quota_status, payload.client_id, user.user_id)
+        quota_status = await asyncio.to_thread(
+            db.get_quota_status, payload.client_id, user.user_id
+        )
         return CRMScriptResponse(
             success=True,
             deliverable_id=updated.deliverable_id or "",
@@ -499,10 +522,17 @@ async def crm_regenerate_cta(
 ):
     """Fast-path CTA regeneration (~75% fewer tokens; 0-LLM Python audit)."""
     try:
-        base_deliverable = await asyncio.to_thread(db.get_deliverable, payload.deliverable_id)
+        base_deliverable = await asyncio.to_thread(
+            db.get_deliverable, payload.deliverable_id
+        )
         if not base_deliverable:
-            raise DeliverableNotFoundError(f"Deliverable '{payload.deliverable_id}' not found.")
-        if base_deliverable.client_id and base_deliverable.client_id != payload.client_id:
+            raise DeliverableNotFoundError(
+                f"Deliverable '{payload.deliverable_id}' not found."
+            )
+        if (
+            base_deliverable.client_id
+            and base_deliverable.client_id != payload.client_id
+        ):
             raise DeliverableNotFoundError(
                 f"Deliverable '{payload.deliverable_id}' does not belong to client '{payload.client_id}'."
             )
@@ -520,7 +550,9 @@ async def crm_regenerate_cta(
             previous_deliverable=base_deliverable,
             is_admin=(user.role == "admin"),
         )
-        quota_status = await asyncio.to_thread(db.get_quota_status, payload.client_id, user.user_id)
+        quota_status = await asyncio.to_thread(
+            db.get_quota_status, payload.client_id, user.user_id
+        )
         return CRMScriptResponse(
             success=True,
             deliverable_id=updated.deliverable_id or "",
@@ -548,7 +580,9 @@ async def crm_client_history(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Client '{client_id}' not found.",
         )
-    items = await asyncio.to_thread(db.get_client_history, client_id, min(max(1, limit), 100))
+    items = await asyncio.to_thread(
+        db.get_client_history, client_id, min(max(1, limit), 100)
+    )
     return CRMHistoryResponse(success=True, client_id=client_id, items=items)
 
 
@@ -564,11 +598,15 @@ async def crm_admin_grant_bonus_runs(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required to grant bonus teammate runs.",
         )
-    updated_usage = await asyncio.to_thread(db.grant_bonus_runs, payload.user_id, payload.bonus_runs)
+    updated_usage = await asyncio.to_thread(
+        db.grant_bonus_runs, payload.user_id, payload.bonus_runs
+    )
     return {"success": True, "granted_by": user.user_id, "daily_usage": updated_usage}
 
 
-@script_falcon_router.post("/send-to-clipfalcon", response_model=ClipFalconHandoffResponse)
+@script_falcon_router.post(
+    "/send-to-clipfalcon", response_model=ClipFalconHandoffResponse
+)
 async def send_to_clipfalcon(
     payload: ClipFalconHandoffRequest,
     db: CRMDatabase = Depends(get_crm_db),
@@ -586,7 +624,9 @@ async def send_to_clipfalcon(
     if CLIPFALCON_WEBHOOK_URL:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(CLIPFALCON_WEBHOOK_URL, json=handoff.model_dump())
+                resp = await client.post(
+                    CLIPFALCON_WEBHOOK_URL, json=handoff.model_dump()
+                )
                 dispatched = 200 <= resp.status_code < 300
         except Exception as exc:
             logger.warning(f"ClipFalcon webhook dispatch failed: {exc}")
@@ -622,14 +662,18 @@ async def generate_script_strict_v2(
                 user_id=user.user_id,
                 is_admin=(user.role == "admin"),
             )
-            quota_status = await asyncio.to_thread(db.get_quota_status, payload.client_id or "", user.user_id)
+            quota_status = await asyncio.to_thread(
+                db.get_quota_status, payload.client_id or "", user.user_id
+            )
             return CRMScriptResponse(
                 success=True,
                 deliverable_id=deliverable.deliverable_id or "",
                 deliverable=deliverable,
                 markdown=deliverable.to_markdown(),
                 quota_status=quota_status,
-                low_balance_warning=bool(quota_status.get("low_balance_warning", False)),
+                low_balance_warning=bool(
+                    quota_status.get("low_balance_warning", False)
+                ),
                 low_balance_message=quota_status.get("low_balance_message"),
                 clipfalcon_handoff=deliverable.to_clipfalcon_handoff(),
             )
@@ -665,10 +709,17 @@ async def regenerate_section_strict_v2(
     if payload.mode == "crm":
         user = require_employee_user(authorization=authorization)
         try:
-            base_deliverable = await asyncio.to_thread(db.get_deliverable, payload.deliverable_id or "")
+            base_deliverable = await asyncio.to_thread(
+                db.get_deliverable, payload.deliverable_id or ""
+            )
             if not base_deliverable:
-                raise DeliverableNotFoundError(f"Deliverable '{payload.deliverable_id}' not found.")
-            if base_deliverable.client_id and base_deliverable.client_id != payload.client_id:
+                raise DeliverableNotFoundError(
+                    f"Deliverable '{payload.deliverable_id}' not found."
+                )
+            if (
+                base_deliverable.client_id
+                and base_deliverable.client_id != payload.client_id
+            ):
                 raise DeliverableNotFoundError(
                     f"Deliverable '{payload.deliverable_id}' does not belong to client '{payload.client_id}'."
                 )
@@ -685,14 +736,18 @@ async def regenerate_section_strict_v2(
                 previous_deliverable=base_deliverable,
                 is_admin=(user.role == "admin"),
             )
-            quota_status = await asyncio.to_thread(db.get_quota_status, payload.client_id or "", user.user_id)
+            quota_status = await asyncio.to_thread(
+                db.get_quota_status, payload.client_id or "", user.user_id
+            )
             return CRMScriptResponse(
                 success=True,
                 deliverable_id=updated.deliverable_id or "",
                 deliverable=updated,
                 markdown=updated.to_markdown(),
                 quota_status=quota_status,
-                low_balance_warning=bool(quota_status.get("low_balance_warning", False)),
+                low_balance_warning=bool(
+                    quota_status.get("low_balance_warning", False)
+                ),
                 low_balance_message=quota_status.get("low_balance_message"),
                 clipfalcon_handoff=updated.to_clipfalcon_handoff(),
             )
@@ -701,16 +756,22 @@ async def regenerate_section_strict_v2(
 
     base = payload.deliverable
     if base is None and payload.deliverable_id:
-        base = await asyncio.to_thread(db.get_standalone_deliverable, payload.deliverable_id)
+        base = await asyncio.to_thread(
+            db.get_standalone_deliverable, payload.deliverable_id
+        )
         if not base:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deliverable not found.")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Deliverable not found."
+            )
     inp = base.input_data.model_copy(deep=True)
     if payload.section == "cta" and payload.conversion_objective:
         inp.objective = payload.conversion_objective
     inp.mode = target_mode
     updated = await pipeline.arun(inp, previous_deliverable=base)
     await asyncio.to_thread(_persist_standalone, updated)
-    return GenerateResponse(success=True, deliverable=updated, markdown=updated.to_markdown())
+    return GenerateResponse(
+        success=True, deliverable=updated, markdown=updated.to_markdown()
+    )
 
 
 app.include_router(script_falcon_router)

@@ -7,6 +7,27 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
+from api import (
+    ClipFalconHandoffRequest,
+    CRMGenerateRequest,
+    CRMRegenerateCtaRequest,
+    CRMRegenerateHookRequest,
+    crm_client_history,
+    crm_generate_script,
+    crm_regenerate_cta,
+    crm_regenerate_hook,
+    send_to_clipfalcon,
+)
+from src.agents.quality_agent import (
+    QualityAgent,
+    check_tamil_unicode_integrity,
+    clean_hybrid_suffixes,
+    find_banned_cliches,
+    find_disrespectful_slang_and_skits,
+    find_non_bracketed_latin_words,
+    fix_tanglish_spelling_slips,
+    repair_tamil_splits,
+)
 from src.auth import create_crm_token, require_employee_user, verify_crm_token
 from src.config import (
     ANTHROPIC_MODEL,
@@ -33,36 +54,13 @@ from src.llm import LLMClient
 from src.models import (
     BrandDNA,
     CheckItem,
-    FullDeliverable,
     HookItem,
-    QualityCheckResult,
     ResearchResult,
     ScriptDraft,
     ScriptInput,
     SourceItem,
 )
 from src.pipeline import TamilReelScriptPipeline
-from src.agents.quality_agent import (
-    QualityAgent,
-    check_tamil_unicode_integrity,
-    clean_hybrid_suffixes,
-    find_banned_cliches,
-    find_disrespectful_slang_and_skits,
-    find_non_bracketed_latin_words,
-    fix_tanglish_spelling_slips,
-    repair_tamil_splits,
-)
-from api import (
-    CRMGenerateRequest,
-    CRMRegenerateCtaRequest,
-    CRMRegenerateHookRequest,
-    ClipFalconHandoffRequest,
-    crm_client_history,
-    crm_generate_script,
-    crm_regenerate_cta,
-    crm_regenerate_hook,
-    send_to_clipfalcon,
-)
 
 
 def test_config_hardening_and_live_pricing():
@@ -81,14 +79,19 @@ def test_config_hardening_and_live_pricing():
     assert "20241022" not in ANTHROPIC_MODEL
 
     # Live pricing rates
-    assert MODEL_PRICING_USD_PER_1M["gemini-3.5-flash-lite"] == {"input": 0.30, "output": 2.50}
+    assert MODEL_PRICING_USD_PER_1M["gemini-3.5-flash-lite"] == {
+        "input": 0.30,
+        "output": 2.50,
+    }
     assert MODEL_PRICING_USD_PER_1M["gpt-4o-mini"] == {"input": 0.15, "output": 0.60}
 
     assert len(BANNED_AI_CLICHES) >= 15
     assert "avan" in DISRESPECTFUL_SLANG_BLACKLIST
     assert "ivan" in DISRESPECTFUL_SLANG_BLACKLIST
 
-    cost = calculate_cost_inr("gemini-3.5-flash-lite", input_tokens=3050, output_tokens=1150)
+    cost = calculate_cost_inr(
+        "gemini-3.5-flash-lite", input_tokens=3050, output_tokens=1150
+    )
     assert 0.25 <= cost <= 0.45
 
 
@@ -113,12 +116,17 @@ def test_tamil_word_count_and_modulation_exclusion():
 
 def test_tamil_unicode_integrity_and_repair():
     """Verify detection of orphan matras, split uyirmei, unclosed brackets, and valid pulli."""
-    valid_tamil = "[Direct eye contact] நீங்க ஒரு எளிய செக்லிஸ்ட் வச்சுக்கோங்க, நம்ம பிசினஸ் வளரும்."
+    valid_tamil = (
+        "[Direct eye contact] நீங்க ஒரு எளிய செக்லிஸ்ட் வச்சுக்கோங்க, நம்ம பிசினஸ் வளரும்."
+    )
     assert check_tamil_unicode_integrity(valid_tamil) == []
 
     broken_split = "ப ண்ணுங்க மற்றும் க ாண்பிக்கவும்"
     issues = check_tamil_unicode_integrity(broken_split)
-    assert any("uyirmei split" in issue.lower() or "orphan" in issue.lower() for issue in issues)
+    assert any(
+        "uyirmei split" in issue.lower() or "orphan" in issue.lower()
+        for issue in issues
+    )
     assert repair_tamil_splits("க ாண்பிக்கவும்") == "காண்பிக்கவும்"
 
     assert check_tamil_unicode_integrity("இது ா தவறு") != []
@@ -140,7 +148,9 @@ def test_quality_agent_7_criteria_flags_cliches_slang_and_skits():
     )
     research = ResearchResult(
         topic=inp.topic,
-        sources=[SourceItem(url="https://example.com", claim_supported="Customer dropoff")],
+        sources=[
+            SourceItem(url="https://example.com", claim_supported="Customer dropoff")
+        ],
     )
     bad_draft = ScriptDraft(
         hook="Person A: This is a game-changer for cheap discount!",
@@ -152,7 +162,9 @@ def test_quality_agent_7_criteria_flags_cliches_slang_and_skits():
 
     assert "game-changer" in find_banned_cliches(bad_draft.hook, ["cheap discount"])
     assert "cheap discount" in find_banned_cliches(bad_draft.hook, ["cheap discount"])
-    slang_skits = find_disrespectful_slang_and_skits(bad_draft.hook + " " + bad_draft.context)
+    slang_skits = find_disrespectful_slang_and_skits(
+        bad_draft.hook + " " + bad_draft.context
+    )
     assert "avan" in slang_skits["slang"]
     assert "person a" in slang_skits["skits"]
 
@@ -200,7 +212,11 @@ def test_quality_agent_simulation_auto_heals_modulation_cues():
     )
     research = ResearchResult(
         topic=inp.topic,
-        sources=[SourceItem(url="https://example.com/speed", claim_supported="Mobile speed matters")],
+        sources=[
+            SourceItem(
+                url="https://example.com/speed", claim_supported="Mobile speed matters"
+            )
+        ],
     )
     draft_without_cues = ScriptDraft(
         hook="Neenga website speed check pannirukeengala?",
@@ -251,11 +267,17 @@ def test_duckduckgo_rate_limit_fallback_and_reference_url():
         "url": "https://smilecare.example/implants",
         "snippet": "Same-day painless consultation with 3D digital scan included.",
     }
-    with patch("src.agents.research_agent.run_research_queries", return_value=[]), \
-         patch("src.agents.research_agent.fetch_reference_url", return_value=ref_snippet):
+    with (
+        patch("src.agents.research_agent.run_research_queries", return_value=[]),
+        patch(
+            "src.agents.research_agent.fetch_reference_url", return_value=ref_snippet
+        ),
+    ):
         res_ref = pipeline.run(inp_ref)
     assert res_ref.research.search_fallback_used is False
-    assert any(s.url == "https://smilecare.example/implants" for s in res_ref.research.sources)
+    assert any(
+        s.url == "https://smilecare.example/implants" for s in res_ref.research.sources
+    )
 
 
 def test_crm_brand_dna_fast_path_regeneration_and_zero_llm_audit():
@@ -287,7 +309,9 @@ def test_crm_brand_dna_fast_path_regeneration_and_zero_llm_audit():
         }
     ]
 
-    with patch("src.agents.research_agent.run_research_queries", return_value=mock_results) as mock_search:
+    with patch(
+        "src.agents.research_agent.run_research_queries", return_value=mock_results
+    ) as mock_search:
         full_del = pipeline.run_for_crm(
             inp=inp,
             db=db,
@@ -304,8 +328,13 @@ def test_crm_brand_dna_fast_path_regeneration_and_zero_llm_audit():
     # Fast-path hook regeneration: skips BOTH Step 1 search AND Step 3 LLM audit
     regen_inp = full_del.input_data.model_copy(deep=True)
     regen_inp.mode = "regenerate_hook"
-    with patch("src.agents.research_agent.run_research_queries") as mock_search_regen, \
-         patch("src.agents.quality_agent.QualityAgent.execute", side_effect=AssertionError("Step 3 LLM must be skipped!")):
+    with (
+        patch("src.agents.research_agent.run_research_queries") as mock_search_regen,
+        patch(
+            "src.agents.quality_agent.QualityAgent.execute",
+            side_effect=AssertionError("Step 3 LLM must be skipped!"),
+        ),
+    ):
         hook_del = pipeline.run_for_crm(
             inp=regen_inp,
             db=db,
@@ -317,7 +346,9 @@ def test_crm_brand_dna_fast_path_regeneration_and_zero_llm_audit():
 
     assert hook_del.deliverable_id != full_del.deliverable_id
     assert len(hook_del.script.hooks) == 3
-    assert hook_del.tokens_used < full_del.tokens_used * 0.40  # >= 60%+ reduction (typically ~75%)
+    assert (
+        hook_del.tokens_used < full_del.tokens_used * 0.40
+    )  # >= 60%+ reduction (typically ~75%)
     assert hook_del.quality_check.overall_passed is True
 
 
@@ -338,36 +369,62 @@ def test_crm_dual_quotas_low_balance_warning_daily_limit_and_dedup_lock():
     assert status_low["low_balance_message"] is not None
 
     # 2. Expired TTL reservation gets cleaned up automatically
-    res_expired = db.reserve_quota("client_quota_test", "emp_1", "full_script", 0.50, ttl_seconds=-1)
+    res_expired = db.reserve_quota(
+        "client_quota_test", "emp_1", "full_script", 0.50, ttl_seconds=-1
+    )
     assert res_expired.startswith("res_")
     assert db.get_quota_status("client_quota_test")["reserved_inr"] == 0.0
 
     # 3. 30-second Duplicate Submit Lock blocks identical rapid double-clicks
     pipeline = TamilReelScriptPipeline(llm_client=LLMClient(provider="simulation"))
     db.credit_quota("client_quota_test", 10.00, update_monthly_budget=True)
-    inp = ScriptInput.create_with_defaults(topic="Double click test topic", duration=30, tone="Tanglish")
+    inp = ScriptInput.create_with_defaults(
+        topic="Double click test topic", duration=30, tone="Tanglish"
+    )
     with patch("src.agents.research_agent.run_research_queries", return_value=[]):
-        pipeline.run_for_crm(inp=inp, db=db, client_id="client_quota_test", user_id="emp_dup")
+        pipeline.run_for_crm(
+            inp=inp, db=db, client_id="client_quota_test", user_id="emp_dup"
+        )
         with pytest.raises(DuplicateRequestError):
-            pipeline.run_for_crm(inp=inp, db=db, client_id="client_quota_test", user_id="emp_dup")
+            pipeline.run_for_crm(
+                inp=inp, db=db, client_id="client_quota_test", user_id="emp_dup"
+            )
 
     # 4. Failed run refunds reservation, daily run count, AND releases dedup lock so user can retry immediately
-    inp_fail = ScriptInput.create_with_defaults(topic="Failing pipeline test", duration=30, tone="Tanglish")
+    inp_fail = ScriptInput.create_with_defaults(
+        topic="Failing pipeline test", duration=30, tone="Tanglish"
+    )
     runs_before = db.get_user_daily_runs("emp_fail")
-    with patch("src.agents.research_agent.ResearchAgent.execute", side_effect=RuntimeError("Simulated LLM crash")):
+    with patch(
+        "src.agents.research_agent.ResearchAgent.execute",
+        side_effect=RuntimeError("Simulated LLM crash"),
+    ):
         with pytest.raises(RuntimeError):
-            pipeline.run_for_crm(inp=inp_fail, db=db, client_id="client_quota_test", user_id="emp_fail")
+            pipeline.run_for_crm(
+                inp=inp_fail, db=db, client_id="client_quota_test", user_id="emp_fail"
+            )
     assert db.get_user_daily_runs("emp_fail") == runs_before
     assert db.get_quota_status("client_quota_test")["reserved_inr"] == 0.0
 
     # 5. Teammate daily run limit (25/day) enforced for employee, bypassed for admin
     for i in range(25):
-        rid = db.reserve_quota("client_quota_test", "emp_spam", "regenerate_hook", 0.01, daily_limit=25)
+        rid = db.reserve_quota(
+            "client_quota_test", "emp_spam", "regenerate_hook", 0.01, daily_limit=25
+        )
         db.settle_quota(rid, 0.01)
     with pytest.raises(DailyLimitExceededError):
-        db.reserve_quota("client_quota_test", "emp_spam", "regenerate_hook", 0.01, daily_limit=25)
+        db.reserve_quota(
+            "client_quota_test", "emp_spam", "regenerate_hook", 0.01, daily_limit=25
+        )
     # Admin override succeeds
-    admin_rid = db.reserve_quota("client_quota_test", "emp_spam", "regenerate_hook", 0.01, is_admin=True, daily_limit=25)
+    admin_rid = db.reserve_quota(
+        "client_quota_test",
+        "emp_spam",
+        "regenerate_hook",
+        0.01,
+        is_admin=True,
+        daily_limit=25,
+    )
     db.settle_quota(admin_rid, 0.01)
 
     # 6. Concurrent reservations cannot overdraw balance
@@ -411,7 +468,9 @@ def test_employee_only_role_guard_and_supabase_claims():
         require_employee_user(authorization=f"Bearer {client_token}")
     assert exc_client.value.status_code == 403
 
-    emp_token = create_crm_token("u_emp_1", "employee", email="writer@vgdigitalfalcon.com")
+    emp_token = create_crm_token(
+        "u_emp_1", "employee", email="writer@vgdigitalfalcon.com"
+    )
     user = verify_crm_token(emp_token)
     assert user.user_id == "u_emp_1"
     assert require_employee_user(authorization=f"Bearer {emp_token}").role == "employee"
@@ -435,9 +494,22 @@ def test_async_scriptfalcon_crm_endpoints_and_clipfalcon_handoff():
     )
     emp_user = verify_crm_token(create_crm_token("emp_42", "employee"))
 
-    mock_search = [{"title": "D2C Retention", "url": "https://example.com/d2c", "snippet": "Repeat customers drive profit."}]
-    with patch("src.agents.research_agent.run_research_queries", return_value=mock_search), \
-         patch("api.pipeline", TamilReelScriptPipeline(llm_client=LLMClient(provider="simulation"))):
+    mock_search = [
+        {
+            "title": "D2C Retention",
+            "url": "https://example.com/d2c",
+            "snippet": "Repeat customers drive profit.",
+        }
+    ]
+    with (
+        patch(
+            "src.agents.research_agent.run_research_queries", return_value=mock_search
+        ),
+        patch(
+            "api.pipeline",
+            TamilReelScriptPipeline(llm_client=LLMClient(provider="simulation")),
+        ),
+    ):
 
         async def _run_async_flow():
             gen_resp = await crm_generate_script(
@@ -482,7 +554,9 @@ def test_async_scriptfalcon_crm_endpoints_and_clipfalcon_handoff():
             assert len(history_resp.items) == 3
 
             handoff_resp = await send_to_clipfalcon(
-                payload=ClipFalconHandoffRequest(deliverable_id=gen_resp.deliverable_id),
+                payload=ClipFalconHandoffRequest(
+                    deliverable_id=gen_resp.deliverable_id
+                ),
                 db=db,
             )
             assert handoff_resp.success is True
@@ -494,9 +568,17 @@ def test_async_scriptfalcon_crm_endpoints_and_clipfalcon_handoff():
 def test_step6_calibration_tamil_integrity_tone_and_cliches():
     """Run calibration checks across Spoken Tamil (30/45/60s) and competitive topics."""
     pipeline = TamilReelScriptPipeline(llm_client=LLMClient(provider="simulation"))
-    mock_search = [{"title": "Local Business Guide", "url": "https://example.com/local", "snippet": "Trust and speed matter."}]
+    mock_search = [
+        {
+            "title": "Local Business Guide",
+            "url": "https://example.com/local",
+            "snippet": "Trust and speed matter.",
+        }
+    ]
 
-    with patch("src.agents.research_agent.run_research_queries", return_value=mock_search):
+    with patch(
+        "src.agents.research_agent.run_research_queries", return_value=mock_search
+    ):
         for dur in (30, 45, 60):
             inp = ScriptInput.create_with_defaults(
                 topic=f"Digital billing tips for Chennai shops ({dur}s)",
@@ -520,9 +602,12 @@ def test_step6_calibration_tamil_integrity_tone_and_cliches():
 def test_full_deliverable_coerces_reloaded_submodels():
     """Verify FullDeliverable accepts ScriptInput created across module reloads via model_dump coercion."""
     import importlib
+
     import src.models as models_mod
 
-    old_inp = ScriptInput.create_with_defaults(topic="How local businesses get leads", duration=30, tone="Tanglish")
+    old_inp = ScriptInput.create_with_defaults(
+        topic="How local businesses get leads", duration=30, tone="Tanglish"
+    )
     reloaded = importlib.reload(models_mod)
 
     new_res = reloaded.ResearchResult(topic=old_inp.topic)
@@ -565,8 +650,13 @@ def test_check_item_and_hook_item_normalize_llm_variants():
     # End-to-end QualityAgent.execute with Gemini-style 'FAIL' status & string body_points
     sim_llm = LLMClient(provider="simulation")
     qa = QualityAgent(sim_llm)
-    inp = ScriptInput.create_with_defaults(topic="Website leads", duration=30, tone="Tamil")
-    res = ResearchResult(topic="Website leads", sources=[SourceItem(url="https://example.com", claim_supported="test")])
+    inp = ScriptInput.create_with_defaults(
+        topic="Website leads", duration=30, tone="Tamil"
+    )
+    res = ResearchResult(
+        topic="Website leads",
+        sources=[SourceItem(url="https://example.com", claim_supported="test")],
+    )
     draft = ScriptDraft(
         hook="[Direct eye contact] உங்க வெப்சைட் இருக்கா?",
         context="[Pause] நம்ம பிசினஸ் பார்க்கலாம்.",
@@ -607,11 +697,16 @@ def test_strict_mode_separation_tamil_transliteration_suffix_and_tanglish_cleanu
     """Verify Pure Tamil loanword transliteration, Spoken Tamil suffix cleanup, and Tanglish slip fixes."""
     sim_llm = LLMClient(provider="simulation")
     qa = QualityAgent(sim_llm)
-    res = ResearchResult(topic="Website leads", sources=[SourceItem(url="https://example.com", claim_supported="test")])
+    res = ResearchResult(
+        topic="Website leads",
+        sources=[SourceItem(url="https://example.com", claim_supported="test")],
+    )
 
     # 1. Pure 'Tamil' mode: non-bracketed English words get flagged under Criterion 4 & transliterated,
     # while [Pause]/[Direct eye contact] stay in English.
-    tamil_inp = ScriptInput.create_with_defaults(topic="Website leads", duration=30, tone="Tamil")
+    tamil_inp = ScriptInput.create_with_defaults(
+        topic="Website leads", duration=30, tone="Tamil"
+    )
     mixed_draft = ScriptDraft(
         hook="[Direct eye contact] உங்க website-ல views வரலையா?",
         context="[Pause] நம்ம பிசினஸ் பார்க்கலாம்.",
@@ -645,7 +740,9 @@ def test_strict_mode_separation_tamil_transliteration_suffix_and_tanglish_cleanu
     assert check_tamil_unicode_integrity(rev_tamil.get_full_script_text()) == []
 
     # 2. 'conversational spoken Tamil' mode: English marketing terms stay, hybrid Roman suffixes -> Tamil script
-    spoken_inp = ScriptInput.create_with_defaults(topic="Website audit", duration=30, tone="conversational spoken Tamil")
+    spoken_inp = ScriptInput.create_with_defaults(
+        topic="Website audit", duration=30, tone="conversational spoken Tamil"
+    )
     hybrid_draft = ScriptDraft(
         hook="[Direct eye contact] உங்க website-la leads வரலையா?",
         context="[Pause] நம்ம team செக் பண்ணுவோம்.",
@@ -661,7 +758,9 @@ def test_strict_mode_separation_tamil_transliteration_suffix_and_tanglish_cleanu
     assert "audit-க்கு" in rev_spoken.cta
 
     # 3. 'Tanglish' mode: ambiguous spelling slips fixed (namma sethu -> namma serndhu)
-    tanglish_inp = ScriptInput.create_with_defaults(topic="Website leads", duration=30, tone="Tanglish")
+    tanglish_inp = ScriptInput.create_with_defaults(
+        topic="Website leads", duration=30, tone="Tanglish"
+    )
     slip_draft = ScriptDraft(
         hook="[Direct eye contact] Website leads varalaya?",
         context="[Pause] Namma ellam serndhu check pannalam.",
@@ -675,7 +774,10 @@ def test_strict_mode_separation_tamil_transliteration_suffix_and_tanglish_cleanu
     assert "namma serndhu fix pannalam" in rev_tanglish.cta
     assert "namma sethu" not in rev_tanglish.cta
     assert clean_hybrid_suffixes("'AUDIT' nu") == "'AUDIT'-னு"
-    assert fix_tanglish_spelling_slips("Namma sethu fix pannalam") == "Namma serndhu fix pannalam"
+    assert (
+        fix_tanglish_spelling_slips("Namma sethu fix pannalam")
+        == "Namma serndhu fix pannalam"
+    )
 
 
 def test_no_romanized_tamil_words_and_natural_cta_phrasing():
@@ -688,7 +790,10 @@ def test_no_romanized_tamil_words_and_natural_cta_phrasing():
 
     sim_llm = LLMClient(provider="simulation")
     qa = QualityAgent(sim_llm)
-    res = ResearchResult(topic="Website leads", sources=[SourceItem(url="https://example.com", claim_supported="test")])
+    res = ResearchResult(
+        topic="Website leads",
+        sources=[SourceItem(url="https://example.com", claim_supported="test")],
+    )
     clean_qc_resp = {
         "checks": {
             "unsupported_claims": {"status": "PASS", "notes": "ok"},
@@ -729,7 +834,10 @@ def test_no_romanized_tamil_words_and_natural_cta_phrasing():
     assert "Get agency leads" not in rev_spoken.cta
     assert "உங்க ஏஜென்சிக்கு லீட்ஸ் வர கைடு வேணும்னா" in rev_spoken.cta
     assert find_romanized_tamil_words(rev_spoken.get_full_script_text()) == []
-    assert has_verbatim_english_objective_in_cta(rev_spoken.cta, "Get agency leads") is False
+    assert (
+        has_verbatim_english_objective_in_cta(rev_spoken.cta, "Get agency leads")
+        is False
+    )
 
     # 2. Pure Tamil mode: Romanized Tamil words AND English loanwords convert cleanly without crude phonetic garbling
     tamil_inp = ScriptInput.create_with_defaults(
@@ -763,10 +871,18 @@ def test_english_mode_pipeline_limits_and_audit():
     from src.config import get_word_count_limits
 
     pipeline = TamilReelScriptPipeline(llm_client=LLMClient(provider="simulation"))
-    mock_search = [{"title": "SaaS Landing Pages", "url": "https://example.com/saas", "snippet": "Clear messaging boosts conversions."}]
+    mock_search = [
+        {
+            "title": "SaaS Landing Pages",
+            "url": "https://example.com/saas",
+            "snippet": "Clear messaging boosts conversions.",
+        }
+    ]
 
     # 1. Calibrated 30s / 45s / 60s English pipeline runs pass all 7 checks without Tamil-specific complaints
-    with patch("src.agents.research_agent.run_research_queries", return_value=mock_search):
+    with patch(
+        "src.agents.research_agent.run_research_queries", return_value=mock_search
+    ):
         for dur in (30, 45, 60):
             inp = ScriptInput.create_with_defaults(
                 topic="Why websites fail to get leads",
@@ -779,13 +895,21 @@ def test_english_mode_pipeline_limits_and_audit():
             assert limits["min"] <= res.script.word_count <= limits["max"]
             assert res.quality_check.overall_passed is True
             assert "Tamil" not in res.quality_check.unnatural_tamil.notes
-            assert "Tamil checks skipped" in res.quality_check.tamil_integrity_and_modulation.notes
+            assert (
+                "Tamil checks skipped"
+                in res.quality_check.tamil_integrity_and_modulation.notes
+            )
 
     # 2. Strict AI cliché & corporate jargon enforcement on English outputs
     sim_llm = LLMClient(provider="simulation")
     qa = QualityAgent(sim_llm)
-    eng_inp = ScriptInput.create_with_defaults(topic="Website leads", duration=30, tone="English")
-    res_obj = ResearchResult(topic="Website leads", sources=[SourceItem(url="https://example.com", claim_supported="test")])
+    eng_inp = ScriptInput.create_with_defaults(
+        topic="Website leads", duration=30, tone="English"
+    )
+    res_obj = ResearchResult(
+        topic="Website leads",
+        sources=[SourceItem(url="https://example.com", claim_supported="test")],
+    )
     cliche_draft = ScriptDraft(
         hook="[Direct eye contact] In today's fast-paced digital world, your funnel needs a game-changer.",
         context="[Pause] Let's delve into how we unlock your potential and elevate your brand with synergy.",
@@ -817,7 +941,10 @@ def test_english_mode_pipeline_limits_and_audit():
 
     # 3. API CRMGenerateRequest schema accepts 'English'
     from api import CRMGenerateRequest
-    crm_req = CRMGenerateRequest(client_id="c1", topic="Website speed tips", duration=30, tone="English")
+
+    crm_req = CRMGenerateRequest(
+        client_id="c1", topic="Website speed tips", duration=30, tone="English"
+    )
     assert crm_req.tone == "English"
 
 
@@ -828,7 +955,10 @@ def test_45s_60s_word_minimum_expansion_and_sen_tamil_ban():
 
     sim_llm = LLMClient(provider="simulation")
     qa = QualityAgent(sim_llm)
-    res = ResearchResult(topic="Clinic setup", sources=[SourceItem(url="https://example.com", claim_supported="test")])
+    res = ResearchResult(
+        topic="Clinic setup",
+        sources=[SourceItem(url="https://example.com", claim_supported="test")],
+    )
     no_op_qc_resp = {
         "checks": {
             "unsupported_claims": {"status": "PASS", "notes": "ok"},
@@ -862,7 +992,9 @@ def test_45s_60s_word_minimum_expansion_and_sen_tamil_ban():
         engagement="[Question tone] உங்க கிளினிக்ல எந்த பிரச்சனை இருக்கு கமெண்ட்ல சொல்லுங்க?",
         cta="[Direct eye contact] ஃப்ரீ கிளினிக் செட்டப் கால் புக் பண்ண இப்பவே மெசேஜ் அனுப்புங்க!",
     )
-    assert 65 <= underlength_45_draft.word_count < 95  # Strictly below 45s minimum (e.g., ~70-86w)
+    assert (
+        65 <= underlength_45_draft.word_count < 95
+    )  # Strictly below 45s minimum (e.g., ~70-86w)
     assert set(find_sen_tamil_words(underlength_45_draft.get_full_script_text())) >= {
         "உங்களுக்கான",
         "எளிது",
@@ -883,7 +1015,9 @@ def test_45s_60s_word_minimum_expansion_and_sen_tamil_ban():
     assert "விடுங்க" in rev_45.context
 
     # 2. Under-length 60s draft must expand strictly into 125-145 words
-    inp_60 = ScriptInput.create_with_defaults(topic="Real estate leads", duration=60, tone="Tanglish")
+    inp_60 = ScriptInput.create_with_defaults(
+        topic="Real estate leads", duration=60, tone="Tanglish"
+    )
     underlength_60_draft = ScriptDraft(
         hook="[Direct eye contact] Real estate leads varalaya? Indha mistakes paathukonga.",
         context="[Pause] Namma buyers online-la trust theduraanga, adhukku clean funnel venum.",
@@ -904,14 +1038,23 @@ def test_45s_60s_word_minimum_expansion_and_sen_tamil_ban():
     assert qc_60.duration_fit.status == "PASS"
 
     # 3. Objective helper matches clinic call naturally without 'மற்றும்'
-    assert adapt_objective_to_conversational_tamil("Book a free clinic setup call") == "உங்க ஃப்ரீ கிளினிக் செட்டப் கால் புக் பண்ண"
-    assert find_sen_tamil_words(adapt_objective_to_conversational_tamil("Increase reach and views")) == []
+    assert (
+        adapt_objective_to_conversational_tamil("Book a free clinic setup call")
+        == "உங்க ஃப்ரீ கிளினிக் செட்டப் கால் புக் பண்ண"
+    )
+    assert (
+        find_sen_tamil_words(
+            adapt_objective_to_conversational_tamil("Increase reach and views")
+        )
+        == []
+    )
 
 
 def test_per_user_token_quotas_bonus_runs_and_strict_dtos():
     """Verify per-user token/spend/run daily limits, admin bonus override, script_runs logging, and strict DTOs."""
     from fastapi.testclient import TestClient
     from pydantic import ValidationError
+
     import api
     from src.models import GenerateScriptRequest, RegenerateSectionRequest
 
@@ -925,7 +1068,13 @@ def test_per_user_token_quotas_bonus_runs_and_strict_dtos():
 
     # 1. Verify token & cost logging in quota_reservations, user_daily_usage, and script_runs
     rid1 = db.reserve_quota("client_budget_60", "emp_tok", "full_script", 0.50)
-    status_after = db.settle_quota(rid1, actual_cost_inr=0.45, input_tokens=30000, output_tokens=45000, tokens_used=75000)
+    status_after = db.settle_quota(
+        rid1,
+        actual_cost_inr=0.45,
+        input_tokens=30000,
+        output_tokens=45000,
+        tokens_used=75000,
+    )
     assert status_after["daily_tokens_used"] == 75000
     assert status_after["daily_runs_used"] == 1
     assert abs(status_after["available_inr"] - 59.55) < 1e-4
@@ -947,11 +1096,23 @@ def test_per_user_token_quotas_bonus_runs_and_strict_dtos():
     # 3. Admin grants +10 bonus runs -> employee can execute again
     db.grant_bonus_runs("emp_tok", bonus_runs=10)
     rid_bonus = db.reserve_quota("client_budget_60", "emp_tok", "regenerate_hook", 0.15)
-    db.settle_quota(rid_bonus, actual_cost_inr=0.10, input_tokens=400, output_tokens=300, tokens_used=700)
+    db.settle_quota(
+        rid_bonus,
+        actual_cost_inr=0.10,
+        input_tokens=400,
+        output_tokens=300,
+        tokens_used=700,
+    )
 
     # 4. Daily ₹9 spend limit enforcement
     rid_spend = db.reserve_quota("client_budget_60", "emp_spend", "full_script", 9.00)
-    db.settle_quota(rid_spend, actual_cost_inr=9.00, input_tokens=5000, output_tokens=5000, tokens_used=10000)
+    db.settle_quota(
+        rid_spend,
+        actual_cost_inr=9.00,
+        input_tokens=5000,
+        output_tokens=5000,
+        tokens_used=10000,
+    )
     with pytest.raises(DailyLimitExceededError):
         db.reserve_quota("client_budget_60", "emp_spend", "full_script", 0.50)
 
@@ -1018,7 +1179,9 @@ def test_per_user_token_quotas_bonus_runs_and_strict_dtos():
 
     # RegenerateSectionRequest rejects extra fields & requires deliverable_id in crm mode
     with pytest.raises(ValidationError):
-        RegenerateSectionRequest(section="hook", mode="crm", client_id="client_budget_60", extra_key=True)
+        RegenerateSectionRequest(
+            section="hook", mode="crm", client_id="client_budget_60", extra_key=True
+        )
 
     # 6. API v2 endpoint checks: 422 on invalid DTO, 429 when daily cap reached, 403 on non-admin bonus grant
     client = TestClient(api.app)
@@ -1036,13 +1199,22 @@ def test_per_user_token_quotas_bonus_runs_and_strict_dtos():
     emp_capped_tok = create_crm_token("emp_capped", "employee")
     emp_admin_tok = create_crm_token("admin_lead", "admin")
     rid_cap = db.reserve_quota("client_budget_60", "emp_capped", "full_script", 0.50)
-    db.settle_quota(rid_cap, actual_cost_inr=0.40, input_tokens=40000, output_tokens=35000, tokens_used=75000)
+    db.settle_quota(
+        rid_cap,
+        actual_cost_inr=0.40,
+        input_tokens=40000,
+        output_tokens=35000,
+        tokens_used=75000,
+    )
 
     api.app.dependency_overrides[api.get_crm_db] = lambda: db
     try:
         resp_429 = client.post(
             "/api/v2/scripts/generate",
-            headers={"Authorization": f"Bearer {emp_capped_tok}", "X-User-Id": "admin_lead"},
+            headers={
+                "Authorization": f"Bearer {emp_capped_tok}",
+                "X-User-Id": "admin_lead",
+            },
             json={
                 "topic": "Clinic digital growth tips",
                 "conversion_objective": "Book a free clinic setup call",
@@ -1074,11 +1246,3 @@ def test_per_user_token_quotas_bonus_runs_and_strict_dtos():
         assert resp_bonus.json()["daily_usage"]["bonus_runs_granted"] == 10
     finally:
         api.app.dependency_overrides.clear()
-
-
-
-
-
-
-
-

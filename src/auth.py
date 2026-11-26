@@ -6,6 +6,7 @@ import hmac
 import json
 import time
 from typing import Optional
+
 from fastapi import Header, HTTPException, status
 from pydantic import BaseModel
 
@@ -55,8 +56,12 @@ def create_crm_token(
     if email:
         payload["email"] = email
 
-    header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    header_b64 = _b64url_encode(
+        json.dumps(header, separators=(",", ":")).encode("utf-8")
+    )
+    payload_b64 = _b64url_encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    )
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     sig = hmac.new(signing_secret, signing_input, hashlib.sha256).digest()
     return f"{header_b64}.{payload_b64}.{_b64url_encode(sig)}"
@@ -94,7 +99,9 @@ def verify_crm_token(token: str, secret: Optional[str] = None) -> AuthenticatedU
     if not user_id or not role:
         raise ValueError("JWT payload missing required 'sub' or 'role'.")
 
-    return AuthenticatedUser(user_id=str(user_id), role=role, email=payload.get("email"))
+    return AuthenticatedUser(
+        user_id=str(user_id), role=role, email=payload.get("email")
+    )
 
 
 def require_employee_user(

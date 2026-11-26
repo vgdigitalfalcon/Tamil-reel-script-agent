@@ -4,9 +4,9 @@ from src.utils import setup_utf8_console
 
 setup_utf8_console()
 
+from src.config import DELIVERABLES_DIR
 from src.models import ScriptInput
 from src.pipeline import TamilReelScriptPipeline
-from src.config import DELIVERABLES_DIR
 
 TEST_CASES = [
     {
@@ -55,7 +55,9 @@ def run_all_samples():
         out_base = DELIVERABLES_DIR / stem
 
         print(f"({i}/{len(TEST_CASES)}) Processing Topic: {inp.topic}")
-        print(f"  Duration: {inp.duration}s | Tone: {inp.tone} | Objective: {inp.objective}")
+        print(
+            f"  Duration: {inp.duration}s | Tone: {inp.tone} | Objective: {inp.objective}"
+        )
 
         deliverable = pipeline.run(inp)
         deliverable.save_deliverables(out_base)
@@ -63,7 +65,9 @@ def run_all_samples():
         print(f"  [SAVED] {out_base.with_suffix('.md')}")
         print(f"  [SAVED] {out_base.with_suffix('.json')}\n")
 
-    print(">> All 3 sample deliverables generated successfully in deliverables/ directory!")
+    print(
+        ">> All 3 sample deliverables generated successfully in deliverables/ directory!"
+    )
 
 
 if __name__ == "__main__":

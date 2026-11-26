@@ -2,27 +2,28 @@
 
 import logging
 import re
-from typing import Tuple, List, Dict, Any, Optional
-from src.models import (
-    ScriptInput,
-    ResearchResult,
-    ScriptDraft,
-    QualityCheckResult,
-    CheckItem,
-)
+from typing import Any, Dict, List, Optional, Tuple
+
 from src.config import (
-    MAX_OUTPUT_TOKENS,
     BANNED_AI_CLICHES,
-    ENGLISH_CORPORATE_JARGON,
-    ENGLISH_ADDRESS_MARKERS,
     DISRESPECTFUL_SLANG_BLACKLIST,
-    TWO_PERSON_SKIT_MARKERS,
+    ENGLISH_ADDRESS_MARKERS,
+    ENGLISH_CORPORATE_JARGON,
+    MAX_OUTPUT_TOKENS,
     RESPECTFUL_ADDRESS_MARKERS,
+    TWO_PERSON_SKIT_MARKERS,
     VOCAL_MODULATION_MARKERS,
     get_word_count_limits,
 )
-from src.prompts import QUALITY_CHECK_SYSTEM_PROMPT
 from src.llm import LLMClient
+from src.models import (
+    CheckItem,
+    QualityCheckResult,
+    ResearchResult,
+    ScriptDraft,
+    ScriptInput,
+)
+from src.prompts import QUALITY_CHECK_SYSTEM_PROMPT
 from src.simulation import SimulationProvider, adapt_objective_to_conversational_tamil
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Dependent vowel signs (matras), virama (pulli), anusvara, length marks
 _TAMIL_COMBINING_MARKS = r"\u0B82\u0BBE-\u0BCD\u0BD7"
 _TAMIL_CONSONANTS = r"\u0B95-\u0BB9"
-_VALID_DECOMPOSED_VOWELS = {"\u0BC6\u0BBE", "\u0BC7\u0BBE", "\u0BC6\u0BD7"}
+_VALID_DECOMPOSED_VOWELS = {"\u0bc6\u0bbe", "\u0bc7\u0bbe", "\u0bc6\u0bd7"}
 
 # Romanized colloquial Tamil words -> exact Tamil script (forbidden in both Tamil & Spoken Tamil modes)
 _ROMANIZED_TAMIL_TO_SCRIPT: Dict[str, str] = {
@@ -480,7 +481,7 @@ def _phonetic_latin_to_tamil(word: str) -> str:
 
     result = "".join(out) or word
     # Ensure no double pulli or invalid vowel sequences
-    result = re.sub(r"\u0BCD{2,}", "\u0BCD", result)
+    result = re.sub(r"\u0BCD{2,}", "\u0bcd", result)
     return result
 
 
@@ -569,15 +570,23 @@ def has_verbatim_english_objective_in_cta(cta_text: str, objective: str) -> bool
     obj_clean = (objective or "").strip()
     if not cta_text or not obj_clean:
         return False
-    if any("\u0B80" <= ch <= "\u0BFF" for ch in obj_clean):
+    if any("\u0b80" <= ch <= "\u0bff" for ch in obj_clean):
         return False
     if len(re.findall(r"[A-Za-z]{2,}", obj_clean)) < 2:
         return False
     without_cues = re.sub(r"\[[^\]]+\]", " ", cta_text)
-    return bool(re.search(rf"(?<![A-Za-z]){re.escape(obj_clean)}(?![A-Za-z])", without_cues, re.IGNORECASE))
+    return bool(
+        re.search(
+            rf"(?<![A-Za-z]){re.escape(obj_clean)}(?![A-Za-z])",
+            without_cues,
+            re.IGNORECASE,
+        )
+    )
 
 
-def rewrite_verbatim_objective_in_cta(cta_text: str, objective: str, tone: str) -> Tuple[str, bool]:
+def rewrite_verbatim_objective_in_cta(
+    cta_text: str, objective: str, tone: str
+) -> Tuple[str, bool]:
     """Replace verbatim English objective pasted into a Tamil/Spoken Tamil CTA with natural Tamil."""
     if tone not in ("Tamil", "conversational spoken Tamil"):
         return cta_text, False
@@ -614,17 +623,29 @@ def clean_hybrid_suffixes(text: str) -> str:
 
     out = text
     # Convert trailing Roman 'nu' after quoted tokens, Tamil words, or hyphenated English words -> '-னு'
-    out = re.sub(r"(['\"][^'\"]+['\"])\s*[-\s]\s*nu\b", r"\1-னு", out, flags=re.IGNORECASE)
+    out = re.sub(
+        r"(['\"][^'\"]+['\"])\s*[-\s]\s*nu\b", r"\1-னு", out, flags=re.IGNORECASE
+    )
     out = re.sub(r"(['\"][^'\"]+['\"])\s+னு\b", r"\1-னு", out)
     out = re.sub(r"([A-Za-z]+)\s*-\s*nu\b", r"\1-னு", out, flags=re.IGNORECASE)
-    out = re.sub(r"([\u0B80-\u0BFF]+)\s*[-\s]\s*nu\b", r"\1-னு", out, flags=re.IGNORECASE)
+    out = re.sub(
+        r"([\u0B80-\u0BFF]+)\s*[-\s]\s*nu\b", r"\1-னு", out, flags=re.IGNORECASE
+    )
 
     # Convert common hyphenated Roman case suffixes after English, Tamil, or quoted terms
-    out = re.sub(r"([A-Za-z\u0B80-\u0BFF'\"]+)-kitta\b", r"\1-கிட்ட", out, flags=re.IGNORECASE)
+    out = re.sub(
+        r"([A-Za-z\u0B80-\u0BFF'\"]+)-kitta\b", r"\1-கிட்ட", out, flags=re.IGNORECASE
+    )
     out = re.sub(r"([A-Za-z\u0B80-\u0BFF'\"]+)-la\b", r"\1-ல", out, flags=re.IGNORECASE)
-    out = re.sub(r"([A-Za-z\u0B80-\u0BFF'\"]+)-k?kum\b", r"\1-க்கும்", out, flags=re.IGNORECASE)
-    out = re.sub(r"([A-Za-z\u0B80-\u0BFF'\"]+)-k?ku\b", r"\1-க்கு", out, flags=re.IGNORECASE)
-    out = re.sub(r"([A-Za-z\u0B80-\u0BFF'\"]+)-oda\b", r"\1-ஓட", out, flags=re.IGNORECASE)
+    out = re.sub(
+        r"([A-Za-z\u0B80-\u0BFF'\"]+)-k?kum\b", r"\1-க்கும்", out, flags=re.IGNORECASE
+    )
+    out = re.sub(
+        r"([A-Za-z\u0B80-\u0BFF'\"]+)-k?ku\b", r"\1-க்கு", out, flags=re.IGNORECASE
+    )
+    out = re.sub(
+        r"([A-Za-z\u0B80-\u0BFF'\"]+)-oda\b", r"\1-ஓட", out, flags=re.IGNORECASE
+    )
     out = re.sub(r"([A-Za-z\u0B80-\u0BFF'\"]+)-ah\b", r"\1-ஆ", out, flags=re.IGNORECASE)
     return out
 
@@ -640,7 +661,12 @@ def fix_tanglish_spelling_slips(text: str) -> str:
         replacement = "Serndhu" if sethu_tok[0].isupper() else "serndhu"
         return f"{prefix} {replacement}"
 
-    out = re.sub(r"\b(namma|naama|naam|ellam)\s+(sethu)\b", _replace_namma_sethu, text, flags=re.IGNORECASE)
+    out = re.sub(
+        r"\b(namma|naama|naam|ellam)\s+(sethu)\b",
+        _replace_namma_sethu,
+        text,
+        flags=re.IGNORECASE,
+    )
     out = re.sub(
         r"\b(sethu)(?=\s+(?:fix|panna|pannalam|pannunga|work|poga|pogalam|solla|sollunga|build|grow|start)\b)",
         lambda m: "Serndhu" if m.group(1)[0].isupper() else "serndhu",
@@ -653,13 +679,19 @@ def fix_tanglish_spelling_slips(text: str) -> str:
 def _term_pattern(term: str) -> re.Pattern:
     """Build Unicode-aware word-boundary regex for Latin or Tamil terms."""
     escaped = re.escape(term.strip())
-    return re.compile(rf"(?<![\w\u0B80-\u0BFF]){escaped}(?![\w\u0B80-\u0BFF])", re.IGNORECASE)
+    return re.compile(
+        rf"(?<![\w\u0B80-\u0BFF]){escaped}(?![\w\u0B80-\u0BFF])", re.IGNORECASE
+    )
 
 
-def find_banned_cliches(text: str, extra_forbidden: Optional[List[str]] = None) -> List[str]:
+def find_banned_cliches(
+    text: str, extra_forbidden: Optional[List[str]] = None
+) -> List[str]:
     """Detect banned AI buzzwords/cliches and client-specific forbidden words."""
     hits: List[str] = []
-    candidates = list(BANNED_AI_CLICHES) + [w for w in (extra_forbidden or []) if w and w.strip()]
+    candidates = list(BANNED_AI_CLICHES) + [
+        w for w in (extra_forbidden or []) if w and w.strip()
+    ]
     for phrase in candidates:
         if _term_pattern(phrase).search(text):
             hits.append(phrase)
@@ -677,7 +709,11 @@ def find_corporate_jargon(text: str) -> List[str]:
 
 def find_disrespectful_slang_and_skits(text: str) -> Dict[str, List[str]]:
     """Detect disrespectful third-person pronouns/slang and 2-person skit dialogue markers."""
-    slang_hits = [term for term in DISRESPECTFUL_SLANG_BLACKLIST if _term_pattern(term).search(text)]
+    slang_hits = [
+        term
+        for term in DISRESPECTFUL_SLANG_BLACKLIST
+        if _term_pattern(term).search(text)
+    ]
     lowered = text.lower()
     skit_hits = [marker for marker in TWO_PERSON_SKIT_MARKERS if marker in lowered]
     return {"slang": slang_hits, "skits": skit_hits}
@@ -685,7 +721,11 @@ def find_disrespectful_slang_and_skits(text: str) -> Dict[str, List[str]]:
 
 def has_respectful_address(text: str, tone: str = "Tanglish") -> bool:
     """Verify presence of respectful single-narrator direct address."""
-    markers = ENGLISH_ADDRESS_MARKERS if (tone or "").strip() == "English" else RESPECTFUL_ADDRESS_MARKERS
+    markers = (
+        ENGLISH_ADDRESS_MARKERS
+        if (tone or "").strip() == "English"
+        else RESPECTFUL_ADDRESS_MARKERS
+    )
     return any(_term_pattern(marker).search(text) for marker in markers)
 
 
@@ -696,22 +736,32 @@ def check_tamil_unicode_integrity(text: str) -> List[str]:
         return issues
 
     if "\ufffd" in text:
-        issues.append("Unicode replacement character (U+FFFD) detected; output may be corrupted.")
+        issues.append(
+            "Unicode replacement character (U+FFFD) detected; output may be corrupted."
+        )
 
     orphan_matches = re.findall(rf"(?:^|[\s\"'(\[])([{_TAMIL_COMBINING_MARKS}])", text)
     if orphan_matches:
-        issues.append(f"Orphan Tamil combining sign detected at word start: {orphan_matches[:3]}")
+        issues.append(
+            f"Orphan Tamil combining sign detected at word start: {orphan_matches[:3]}"
+        )
 
-    split_matches = re.findall(rf"([{_TAMIL_CONSONANTS}]\s+[{_TAMIL_COMBINING_MARKS}])", text)
+    split_matches = re.findall(
+        rf"([{_TAMIL_CONSONANTS}]\s+[{_TAMIL_COMBINING_MARKS}])", text
+    )
     if split_matches:
-        issues.append(f"Broken Tamil uyirmei split across whitespace: {split_matches[:3]}")
+        issues.append(
+            f"Broken Tamil uyirmei split across whitespace: {split_matches[:3]}"
+        )
 
-    if "\u0BCD\u0BCD" in text:
+    if "\u0bcd\u0bcd" in text:
         issues.append("Invalid consecutive Tamil virama (pulli) sequence detected.")
     for match in re.finditer(rf"[{_TAMIL_COMBINING_MARKS}]{{2,}}", text):
         seq = match.group(0)
         if seq not in _VALID_DECOMPOSED_VOWELS:
-            issues.append(f"Invalid Tamil combining mark sequence detected: {repr(seq)}")
+            issues.append(
+                f"Invalid Tamil combining mark sequence detected: {repr(seq)}"
+            )
             break
 
     if text.count("[") != text.count("]"):
@@ -724,7 +774,9 @@ def repair_tamil_splits(text: str) -> str:
     """Deterministically rejoin accidentally spaced Tamil uyirmei combining marks."""
     if not text:
         return text
-    return re.sub(rf"([{_TAMIL_CONSONANTS}])\s+([{_TAMIL_COMBINING_MARKS}])", r"\1\2", text)
+    return re.sub(
+        rf"([{_TAMIL_CONSONANTS}])\s+([{_TAMIL_COMBINING_MARKS}])", r"\1\2", text
+    )
 
 
 _SEN_TAMIL_TO_SPOKEN: Dict[str, str] = {
@@ -793,7 +845,7 @@ def replace_sen_tamil_with_spoken(text: str) -> Tuple[str, List[str]]:
 
 # Non-Tamil Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Telugu, Kannada,
 # Malayalam, Sinhala). LLMs occasionally leak these into Tamil/Tanglish output (e.g. Bengali "লাভ").
-_FOREIGN_INDIC_RANGES = "\u0900-\u0B7F\u0C00-\u0DFF"
+_FOREIGN_INDIC_RANGES = "\u0900-\u0b7f\u0c00-\u0dff"
 # Any word containing at least one foreign-Indic letter (used for detection / flagging).
 _FOREIGN_INDIC_WORD_RE = re.compile(rf"[^\s\[\]]*[{_FOREIGN_INDIC_RANGES}][^\s\[\]]*")
 # A word made up *entirely* of foreign-Indic letters (plus combining marks), with the one
@@ -828,8 +880,19 @@ _CUE_SYNONYMS = {
 # Script section / hook-type labels the LLM sometimes echoes into spoken text. A presenter
 # would read these aloud from the teleprompter, so they are removed.
 _SECTION_LABELS = {
-    "hook", "context", "body", "engagement", "cta", "call to action", "caption",
-    "bold statement", "pain-point", "pain point", "question hook", "intro", "outro",
+    "hook",
+    "context",
+    "body",
+    "engagement",
+    "cta",
+    "call to action",
+    "caption",
+    "bold statement",
+    "pain-point",
+    "pain point",
+    "question hook",
+    "intro",
+    "outro",
 }
 _CUE_RE = re.compile(r"\[([^\[\]]{1,40})\]")
 
@@ -916,14 +979,22 @@ def run_deterministic_audit(draft: ScriptDraft, inp: ScriptInput) -> Dict[str, A
         tamil_issues = check_tamil_unicode_integrity(all_text)
     foreign_words = find_foreign_indic_words(all_text)
     if foreign_words:
-        tamil_issues = tamil_issues + [f"Non-Tamil Indic script detected: {foreign_words[:3]}"]
+        tamil_issues = tamil_issues + [
+            f"Non-Tamil Indic script detected: {foreign_words[:3]}"
+        ]
     modulation_cues = draft.extract_modulation_cues()
-    latin_words_in_tamil = find_non_bracketed_latin_words(spoken_text) if inp.tone == "Tamil" else []
+    latin_words_in_tamil = (
+        find_non_bracketed_latin_words(spoken_text) if inp.tone == "Tamil" else []
+    )
     romanized_tamil_words = (
-        find_romanized_tamil_words(all_text) if inp.tone in ("Tamil", "conversational spoken Tamil") else []
+        find_romanized_tamil_words(all_text)
+        if inp.tone in ("Tamil", "conversational spoken Tamil")
+        else []
     )
     sen_tamil_hits = (
-        find_sen_tamil_words(all_text) if inp.tone in ("Tamil", "conversational spoken Tamil") else []
+        find_sen_tamil_words(all_text)
+        if inp.tone in ("Tamil", "conversational spoken Tamil")
+        else []
     )
     verbatim_obj_in_cta = (
         has_verbatim_english_objective_in_cta(draft.cta, inp.objective)
@@ -992,8 +1063,12 @@ def _apply_mode_post_cleanup(
 
     if _transform_all_fields(_foreign_fn):
         sample = ", ".join(detected_foreign[:6])
-        fixes_applied.append(f"Removed words written in a non-Tamil Indic script: {sample}.")
-        flag_notes.append(f"Detected non-Tamil Indic script ({sample}); removed from script.")
+        fixes_applied.append(
+            f"Removed words written in a non-Tamil Indic script: {sample}."
+        )
+        flag_notes.append(
+            f"Detected non-Tamil Indic script ({sample}); removed from script."
+        )
 
     # 0b. Normalise vocal modulation cues to the approved teleprompter set — all tones.
     detected_cues: List[str] = []
@@ -1005,17 +1080,23 @@ def _apply_mode_post_cleanup(
 
     if _transform_all_fields(_cue_fn):
         sample = ", ".join(dict.fromkeys(detected_cues))
-        fixes_applied.append(f"Normalised non-standard vocal cues to the approved set: {sample}.")
+        fixes_applied.append(
+            f"Normalised non-standard vocal cues to the approved set: {sample}."
+        )
 
     if inp.tone in ("Tamil", "conversational spoken Tamil"):
         # 1. Replace raw pasted English Conversion Objective in CTA / CTA options with natural Tamil
         cta_obj_fixed = False
-        rewritten_cta, changed_main = rewrite_verbatim_objective_in_cta(updated_draft.cta, inp.objective, inp.tone)
+        rewritten_cta, changed_main = rewrite_verbatim_objective_in_cta(
+            updated_draft.cta, inp.objective, inp.tone
+        )
         if changed_main:
             updated_draft.cta = rewritten_cta
             cta_obj_fixed = True
         for c in updated_draft.cta_options:
-            rewritten_opt, changed_opt = rewrite_verbatim_objective_in_cta(c.text, inp.objective, inp.tone)
+            rewritten_opt, changed_opt = rewrite_verbatim_objective_in_cta(
+                c.text, inp.objective, inp.tone
+            )
             if changed_opt:
                 c.text = rewritten_opt
                 cta_obj_fixed = True
@@ -1037,7 +1118,9 @@ def _apply_mode_post_cleanup(
 
         if _transform_all_fields(_sen_tamil_fn):
             sample = ", ".join(detected_sen_tamil[:6])
-            fixes_applied.append(f"Replaced formal Sen-Tamil words with spoken equivalents: {sample}.")
+            fixes_applied.append(
+                f"Replaced formal Sen-Tamil words with spoken equivalents: {sample}."
+            )
             flag_notes.append(
                 f"Detected formal Sen-Tamil words in {inp.tone} mode ({sample}); replaced with spoken equivalents."
             )
@@ -1052,18 +1135,24 @@ def _apply_mode_post_cleanup(
 
         if _transform_all_fields(_roman_tamil_fn):
             sample = ", ".join(detected_roman_tamil[:6])
-            fixes_applied.append(f"Converted Romanized Tamil words to Tamil script: {sample}.")
+            fixes_applied.append(
+                f"Converted Romanized Tamil words to Tamil script: {sample}."
+            )
             flag_notes.append(
                 f"Detected Romanized Tamil words in {inp.tone} mode ({sample}); converted to Tamil script."
             )
 
         # 4. Convert hybrid Roman suffixes ('AUDIT' nu -> 'AUDIT'-னு, website-la -> website-ல)
         if _transform_all_fields(clean_hybrid_suffixes):
-            fixes_applied.append("Converted hybrid Roman suffixes (e.g. 'AUDIT' nu -> 'AUDIT'-னு) into Tamil script.")
+            fixes_applied.append(
+                "Converted hybrid Roman suffixes (e.g. 'AUDIT' nu -> 'AUDIT'-னு) into Tamil script."
+            )
 
     if inp.tone == "Tanglish":
         if _transform_all_fields(fix_tanglish_spelling_slips):
-            fixes_applied.append("Corrected ambiguous Tanglish spellings (e.g. namma sethu -> namma serndhu).")
+            fixes_applied.append(
+                "Corrected ambiguous Tanglish spellings (e.g. namma sethu -> namma serndhu)."
+            )
 
     if inp.tone == "Tamil":
         detected_latin: List[str] = []
@@ -1075,7 +1164,9 @@ def _apply_mode_post_cleanup(
 
         if _transform_all_fields(_translit_fn):
             sample = ", ".join(detected_latin[:6])
-            fixes_applied.append(f"Transliterated non-bracketed English words into Tamil script: {sample}.")
+            fixes_applied.append(
+                f"Transliterated non-bracketed English words into Tamil script: {sample}."
+            )
             flag_notes.append(
                 f"Detected non-bracketed English words in Tamil mode ({sample}); "
                 "transliterated to Tamil script."
@@ -1087,7 +1178,11 @@ def _apply_mode_post_cleanup(
 def _count_tip_spoken_words(tip: str) -> int:
     """Count pure spoken words inside a candidate body tip."""
     spoken = re.sub(r"\[[^\]]+\]", " ", tip)
-    return len(re.findall(r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", spoken, flags=re.UNICODE))
+    return len(
+        re.findall(
+            r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", spoken, flags=re.UNICODE
+        )
+    )
 
 
 def _enforce_45s_60s_word_minimum(
@@ -1194,25 +1289,35 @@ class QualityAgent:
 
         pre_check_notes = []
         if pre_audit["cliche_hits"]:
-            pre_check_notes.append(f"BANNED AI CLICHES / FORBIDDEN WORDS FOUND: {pre_audit['cliche_hits']}")
+            pre_check_notes.append(
+                f"BANNED AI CLICHES / FORBIDDEN WORDS FOUND: {pre_audit['cliche_hits']}"
+            )
         if pre_audit["english_jargon_hits"]:
             pre_check_notes.append(
                 f"CORPORATE JARGON FOUND IN ENGLISH MODE: {pre_audit['english_jargon_hits']}. "
                 "Rewrite using everyday spoken English with short 8-12 word breath lines."
             )
         if pre_audit["slang_hits"]:
-            pre_check_notes.append(f"DISRESPECTFUL SLANG FOUND: {pre_audit['slang_hits']}")
+            pre_check_notes.append(
+                f"DISRESPECTFUL SLANG FOUND: {pre_audit['slang_hits']}"
+            )
         if pre_audit["skit_hits"]:
-            pre_check_notes.append(f"TWO-PERSON SKIT MARKERS FOUND: {pre_audit['skit_hits']}")
+            pre_check_notes.append(
+                f"TWO-PERSON SKIT MARKERS FOUND: {pre_audit['skit_hits']}"
+            )
         if pre_audit["tamil_issues"]:
-            pre_check_notes.append(f"TAMIL UNICODE INTEGRITY ISSUES: {pre_audit['tamil_issues']}")
+            pre_check_notes.append(
+                f"TAMIL UNICODE INTEGRITY ISSUES: {pre_audit['tamil_issues']}"
+            )
         if len(pre_audit["modulation_cues"]) < 2:
             pre_check_notes.append(
                 f"LOW VOCAL MODULATION CUES ({len(pre_audit['modulation_cues'])} found; need >= 2 such as [Pause], [Stress], [Direct eye contact])."
             )
         if inp.tone in ("Tamil", "conversational spoken Tamil"):
             spoken_check = f"{draft.hook} {draft.context} {' '.join(draft.body_points)} {draft.engagement} {draft.cta}"
-            tamil_char_count = sum(1 for ch in spoken_check if "\u0B80" <= ch <= "\u0BFF")
+            tamil_char_count = sum(
+                1 for ch in spoken_check if "\u0b80" <= ch <= "\u0bff"
+            )
             if tamil_char_count < 15:
                 pre_check_notes.append(
                     "LANGUAGE SCRIPT MISMATCH: Tone requires Tamil Unicode script (தமிழ்), but draft is in Romanized Tanglish. Rewrite all spoken lines in conversational Tamil Unicode script."
@@ -1243,11 +1348,15 @@ class QualityAgent:
                 f"Expand body_points with concrete tips until spoken words reach {limits['min']}-{limits['max']}w."
             )
 
-        pre_check_block = "\n".join(f"- {note}" for note in pre_check_notes) if pre_check_notes else "None"
+        pre_check_block = (
+            "\n".join(f"- {note}" for note in pre_check_notes)
+            if pre_check_notes
+            else "None"
+        )
 
         user_prompt = f"""Topic: {inp.topic}
 Audience: {inp.audience}
-Duration: {inp.duration}s (Strict spoken target: {limits['min']}-{limits['max']} words | Actual spoken words: {actual_words})
+Duration: {inp.duration}s (Strict spoken target: {limits["min"]}-{limits["max"]} words | Actual spoken words: {actual_words})
 Tone: {inp.tone}
 Objective: {inp.objective}
 
@@ -1307,7 +1416,9 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
                 for h in updated_draft.hooks:
                     if h.is_recommended:
                         h.text = revised_hook_text
-                        h.reason = "Revised by Quality Auditor for tone/duration compliance."
+                        h.reason = (
+                            "Revised by Quality Auditor for tone/duration compliance."
+                        )
                         found_rec = True
                         break
                 if not found_rec and updated_draft.hooks:
@@ -1319,7 +1430,9 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
             if revised.get("body_points"):
                 bp = revised["body_points"]
                 if isinstance(bp, str):
-                    updated_draft.body_points = [ln.strip() for ln in bp.splitlines() if ln.strip()]
+                    updated_draft.body_points = [
+                        ln.strip() for ln in bp.splitlines() if ln.strip()
+                    ]
                 else:
                     updated_draft.body_points = [str(x) for x in bp]
             if revised.get("engagement"):
@@ -1332,15 +1445,23 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
             repaired_hook = repair_tamil_splits(updated_draft.hook)
             if repaired_hook != updated_draft.hook:
                 updated_draft.hook = repaired_hook
-                fixes_applied.append("Repaired spaced Tamil uyirmei combining mark in hook.")
+                fixes_applied.append(
+                    "Repaired spaced Tamil uyirmei combining mark in hook."
+                )
             repaired_context = repair_tamil_splits(updated_draft.context)
             if repaired_context != updated_draft.context:
                 updated_draft.context = repaired_context
-                fixes_applied.append("Repaired spaced Tamil uyirmei combining mark in context.")
-            repaired_points = [repair_tamil_splits(p) for p in updated_draft.body_points]
+                fixes_applied.append(
+                    "Repaired spaced Tamil uyirmei combining mark in context."
+                )
+            repaired_points = [
+                repair_tamil_splits(p) for p in updated_draft.body_points
+            ]
             if repaired_points != updated_draft.body_points:
                 updated_draft.body_points = repaired_points
-                fixes_applied.append("Repaired spaced Tamil uyirmei combining marks in body points.")
+                fixes_applied.append(
+                    "Repaired spaced Tamil uyirmei combining marks in body points."
+                )
             updated_draft.engagement = repair_tamil_splits(updated_draft.engagement)
             updated_draft.cta = repair_tamil_splits(updated_draft.cta)
 
@@ -1348,7 +1469,9 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
         c4_flag_note = _apply_mode_post_cleanup(updated_draft, inp, fixes_applied)
 
         # Deterministic Step 3 minimum word-count enforcement for 45s & 60s scripts
-        duration_expanded_note = _enforce_45s_60s_word_minimum(updated_draft, inp, fixes_applied)
+        duration_expanded_note = _enforce_45s_60s_word_minimum(
+            updated_draft, inp, fixes_applied
+        )
 
         # Post-audit deterministic verification
         post_audit = run_deterministic_audit(updated_draft, inp)
@@ -1365,11 +1488,17 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
 
         c6_failures = []
         if post_audit["cliche_hits"]:
-            c6_failures.append(f"Banned clichés/forbidden words remain: {', '.join(post_audit['cliche_hits'])}")
+            c6_failures.append(
+                f"Banned clichés/forbidden words remain: {', '.join(post_audit['cliche_hits'])}"
+            )
         if post_audit["slang_hits"]:
-            c6_failures.append(f"Disrespectful slang remains: {', '.join(post_audit['slang_hits'])}")
+            c6_failures.append(
+                f"Disrespectful slang remains: {', '.join(post_audit['slang_hits'])}"
+            )
         if post_audit["skit_hits"]:
-            c6_failures.append(f"2-person skit markers remain: {', '.join(post_audit['skit_hits'])}")
+            c6_failures.append(
+                f"2-person skit markers remain: {', '.join(post_audit['skit_hits'])}"
+            )
         if c6_failures:
             c6_status = "FLAG"
             c6_notes = "; ".join(c6_failures)
@@ -1407,7 +1536,9 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
         if is_english:
             c4_english_issues = []
             if post_audit["cliche_hits"]:
-                c4_english_issues.append(f"AI clichés in English output: {', '.join(post_audit['cliche_hits'])}")
+                c4_english_issues.append(
+                    f"AI clichés in English output: {', '.join(post_audit['cliche_hits'])}"
+                )
             if post_audit["english_jargon_hits"]:
                 c4_english_issues.append(
                     f"Corporate jargon in English output: {', '.join(post_audit['english_jargon_hits'])}"
@@ -1418,10 +1549,14 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
         elif c4_flag_note:
             c4["status"] = "FLAG"
             c4["notes"] = c4_flag_note
-        c5 = _check_entry("duration_fit", f"Word count ({updated_draft.word_count}w) calibrated.")
+        c5 = _check_entry(
+            "duration_fit", f"Word count ({updated_draft.word_count}w) calibrated."
+        )
         if duration_expanded_note:
             final_wc = updated_draft.word_count
-            c5["status"] = "PASS" if limits["min"] <= final_wc <= limits["max"] else "FLAG"
+            c5["status"] = (
+                "PASS" if limits["min"] <= final_wc <= limits["max"] else "FLAG"
+            )
             c5["notes"] = duration_expanded_note
 
         qc_result = QualityCheckResult(
@@ -1454,12 +1589,16 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
             repaired_hook = repair_tamil_splits(updated_draft.hook)
             if repaired_hook != updated_draft.hook:
                 updated_draft.hook = repaired_hook
-                fixes_applied.append("Repaired spaced Tamil uyirmei combining mark in regenerated hook.")
+                fixes_applied.append(
+                    "Repaired spaced Tamil uyirmei combining mark in regenerated hook."
+                )
 
             repaired_cta = repair_tamil_splits(updated_draft.cta)
             if repaired_cta != updated_draft.cta:
                 updated_draft.cta = repaired_cta
-                fixes_applied.append("Repaired spaced Tamil uyirmei combining mark in regenerated CTA.")
+                fixes_applied.append(
+                    "Repaired spaced Tamil uyirmei combining mark in regenerated CTA."
+                )
 
             for h in updated_draft.hooks:
                 h.text = repair_tamil_splits(h.text)
@@ -1488,8 +1627,10 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
                 if _is_clean_candidate(h.text):
                     updated_draft.hook = h.text
                     for item in updated_draft.hooks:
-                        item.is_recommended = (item is h)
-                    fixes_applied.append("Swapped active hook to clean guardrail-compliant hook option.")
+                        item.is_recommended = item is h
+                    fixes_applied.append(
+                        "Swapped active hook to clean guardrail-compliant hook option."
+                    )
                     break
 
         if mode == "regenerate_cta" and not _is_clean_candidate(updated_draft.cta):
@@ -1497,21 +1638,33 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
                 if _is_clean_candidate(c.text):
                     updated_draft.cta = c.text
                     for item in updated_draft.cta_options:
-                        item.is_recommended = (item is c)
-                    fixes_applied.append("Swapped active CTA to clean guardrail-compliant CTA option.")
+                        item.is_recommended = item is c
+                    fixes_applied.append(
+                        "Swapped active CTA to clean guardrail-compliant CTA option."
+                    )
                     break
 
         hook_spoken_only = re.sub(r"\[[^\]]+\]", " ", updated_draft.hook)
-        hook_words = len(re.findall(r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", hook_spoken_only))
+        hook_words = len(
+            re.findall(
+                r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", hook_spoken_only
+            )
+        )
         if mode == "regenerate_hook" and hook_words > 12:
             for h in updated_draft.hooks:
                 h_spoken = re.sub(r"\[[^\]]+\]", " ", h.text)
-                h_wc = len(re.findall(r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", h_spoken))
+                h_wc = len(
+                    re.findall(
+                        r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", h_spoken
+                    )
+                )
                 if h_wc <= 12 and _is_clean_candidate(h.text):
                     updated_draft.hook = h.text
                     for item in updated_draft.hooks:
-                        item.is_recommended = (item is h)
-                    fixes_applied.append(f"Selected <=12-word hook option ({h_wc}w) for punchy pacing.")
+                        item.is_recommended = item is h
+                    fixes_applied.append(
+                        f"Selected <=12-word hook option ({h_wc}w) for punchy pacing."
+                    )
                     break
 
         c4_flag_note = _apply_mode_post_cleanup(updated_draft, inp, fixes_applied)
@@ -1519,24 +1672,36 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
         post_audit = run_deterministic_audit(updated_draft, inp)
         c6_failures = []
         if post_audit["cliche_hits"]:
-            c6_failures.append(f"Banned clichés/forbidden words: {', '.join(post_audit['cliche_hits'])}")
+            c6_failures.append(
+                f"Banned clichés/forbidden words: {', '.join(post_audit['cliche_hits'])}"
+            )
         if post_audit["slang_hits"]:
-            c6_failures.append(f"Disrespectful slang: {', '.join(post_audit['slang_hits'])}")
+            c6_failures.append(
+                f"Disrespectful slang: {', '.join(post_audit['slang_hits'])}"
+            )
         if post_audit["skit_hits"]:
-            c6_failures.append(f"2-person skit markers: {', '.join(post_audit['skit_hits'])}")
+            c6_failures.append(
+                f"2-person skit markers: {', '.join(post_audit['skit_hits'])}"
+            )
 
         c7_failures = list(post_audit["tamil_issues"])
         if len(post_audit["modulation_cues"]) < 2:
-            c7_failures.append(f"Insufficient vocal modulation cues ({len(post_audit['modulation_cues'])} found; need >= 2).")
+            c7_failures.append(
+                f"Insufficient vocal modulation cues ({len(post_audit['modulation_cues'])} found; need >= 2)."
+            )
 
         c4_status = "PASS"
         c4_notes = "Conversational spoken Tamil/Tanglish mode rules enforced."
         if is_english:
             eng_c4_issues = []
             if post_audit["cliche_hits"]:
-                eng_c4_issues.append(f"Banned AI clichés: {', '.join(post_audit['cliche_hits'])}")
+                eng_c4_issues.append(
+                    f"Banned AI clichés: {', '.join(post_audit['cliche_hits'])}"
+                )
             if post_audit["english_jargon_hits"]:
-                eng_c4_issues.append(f"Corporate jargon: {', '.join(post_audit['english_jargon_hits'])}")
+                eng_c4_issues.append(
+                    f"Corporate jargon: {', '.join(post_audit['english_jargon_hits'])}"
+                )
             if eng_c4_issues:
                 c4_status = "FLAG"
                 c4_notes = "; ".join(eng_c4_issues)
@@ -1557,11 +1722,19 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
         duration_ok = (limits["min"] - 5) <= actual_words <= (limits["max"] + 5)
 
         qc_result = QualityCheckResult(
-            unsupported_claims=CheckItem(status="PASS", notes="Preserved verified research from base deliverable."),
-            repetition=CheckItem(status="PASS", notes="Fast-path Python audit: body preserved without duplication."),
+            unsupported_claims=CheckItem(
+                status="PASS",
+                notes="Preserved verified research from base deliverable.",
+            ),
+            repetition=CheckItem(
+                status="PASS",
+                notes="Fast-path Python audit: body preserved without duplication.",
+            ),
             weak_cta=CheckItem(
                 status="PASS" if updated_draft.cta.strip() else "FLAG",
-                notes="CTA specific and preserved." if updated_draft.cta.strip() else "Empty CTA.",
+                notes="CTA specific and preserved."
+                if updated_draft.cta.strip()
+                else "Empty CTA.",
             ),
             unnatural_tamil=CheckItem(
                 status=c4_status,
@@ -1573,7 +1746,9 @@ Perform the 7-criteria quality audit. If ANY criterion or pre-check flag fails, 
             ),
             respectful_and_cliche_free=CheckItem(
                 status="FLAG" if c6_failures else "PASS",
-                notes="; ".join(c6_failures) if c6_failures else "Fast-path Python audit: single-narrator respectful tone; zero AI clichés.",
+                notes="; ".join(c6_failures)
+                if c6_failures
+                else "Fast-path Python audit: single-narrator respectful tone; zero AI clichés.",
             ),
             tamil_integrity_and_modulation=CheckItem(
                 status="FLAG" if c7_failures else "PASS",

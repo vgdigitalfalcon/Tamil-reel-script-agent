@@ -1,25 +1,26 @@
 """Step 2: Humanized Scriptwriter Agent for Hooks, Scriptwriting, and Production Notes."""
 
 import logging
-from typing import Dict, Any
-from src.models import (
-    ScriptInput,
-    ResearchResult,
-    ScriptDraft,
-    HookItem,
-    CtaOptionItem,
-)
+from typing import Any, Dict
+
 from src.config import (
     MAX_OUTPUT_TOKENS,
     REGENERATION_MAX_OUTPUT_TOKENS,
     get_word_count_limits,
 )
-from src.prompts import (
-    SCRIPT_SYSTEM_PROMPT,
-    REGENERATE_HOOK_PROMPT,
-    REGENERATE_CTA_PROMPT,
-)
 from src.llm import LLMClient
+from src.models import (
+    CtaOptionItem,
+    HookItem,
+    ResearchResult,
+    ScriptDraft,
+    ScriptInput,
+)
+from src.prompts import (
+    REGENERATE_CTA_PROMPT,
+    REGENERATE_HOOK_PROMPT,
+    SCRIPT_SYSTEM_PROMPT,
+)
 from src.simulation import SimulationProvider
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,9 @@ def _format_brand_dna_section(inp: ScriptInput) -> str:
     if dna.brand_tone:
         lines.append(f"- Brand Tone: {dna.brand_tone}")
     if dna.forbidden_words:
-        lines.append(f"- STRICTLY FORBIDDEN WORDS FOR THIS CLIENT: {', '.join(dna.forbidden_words)}")
+        lines.append(
+            f"- STRICTLY FORBIDDEN WORDS FOR THIS CLIENT: {', '.join(dna.forbidden_words)}"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -87,7 +90,9 @@ class ScriptAgent:
                 "'game-changer', 'unlock your potential', 'delve into', 'dive deep', 'elevate your brand') and ZERO corporate jargon."
             )
             address_note = "direct, conversational ('you'/'your') script"
-            integrity_note = "short 8-12 word breath lines, zero corporate jargon, zero AI clichés"
+            integrity_note = (
+                "short 8-12 word breath lines, zero corporate jargon, zero AI clichés"
+            )
         else:
             script_lang_rule = (
                 "SCRIPT LANGUAGE LOCK (TANGLISH): Write spoken Tamil in English letters using natural "
@@ -99,7 +104,7 @@ class ScriptAgent:
         user_prompt = f"""Topic: {inp.topic}
 Audience: {inp.audience}
 Platform: {inp.platform}
-Target Duration: {inp.duration} seconds (STRICT spoken word count: {limits['min']}-{limits['max']} words, excluding [modulation] tags)
+Target Duration: {inp.duration} seconds (STRICT spoken word count: {limits["min"]}-{limits["max"]} words, excluding [modulation] tags)
 Tone / Language Mode: {inp.tone}
 {script_lang_rule}
 Objective: {inp.objective}
@@ -113,7 +118,7 @@ CHOSEN CONTENT ANGLE:
 PAIN POINTS:
 {chr(10).join(f"- {p}" for p in research.pain_points)}
 
-Write a single-narrator, {address_note} with inline vocal modulation cues ([Pause], [Stress], [Curious tone], [Direct eye contact], [Slow down]), {integrity_note}, zero formal Sen-Tamil (NEVER எளிது, விடுங்கள், மற்றும், உங்களுக்கான — always ஈஸி, விடுங்க, அப்புறம், உங்களுக்கு), and pure spoken words strictly between {limits['min']} and {limits['max']} words (if {inp.duration}s >= 45, write enough body points so you never fall below {limits['min']} words).
+Write a single-narrator, {address_note} with inline vocal modulation cues ([Pause], [Stress], [Curious tone], [Direct eye contact], [Slow down]), {integrity_note}, zero formal Sen-Tamil (NEVER எளிது, விடுங்கள், மற்றும், உங்களுக்கான — always ஈஸி, விடுங்க, அப்புறம், உங்களுக்கு), and pure spoken words strictly between {limits["min"]} and {limits["max"]} words (if {inp.duration}s >= 45, write enough body points so you never fall below {limits["min"]} words).
 """
 
         fallback = SimulationProvider.get_script_fallback(inp, research)
@@ -154,7 +159,9 @@ Write a single-narrator, {address_note} with inline vocal modulation cues ([Paus
 
         raw_points = data.get("body_points", [])
         if isinstance(raw_points, str):
-            body_points_list = [ln.strip() for ln in raw_points.splitlines() if ln.strip()]
+            body_points_list = [
+                ln.strip() for ln in raw_points.splitlines() if ln.strip()
+            ]
         else:
             body_points_list = [str(x) for x in (raw_points or [])]
 
@@ -209,8 +216,12 @@ Generate 3 brand new punchy, single-narrator respectful hooks (question, bold st
             return updated_draft
         # Exactly one hook is flagged, and it is the one used as the active hook.
         wanted = (data.get("recommended_hook") or "").strip()
-        chosen = next((h for h in new_hooks if wanted and h.text.strip() == wanted), None)
-        chosen = chosen or next((h for h in new_hooks if h.is_recommended), new_hooks[0])
+        chosen = next(
+            (h for h in new_hooks if wanted and h.text.strip() == wanted), None
+        )
+        chosen = chosen or next(
+            (h for h in new_hooks if h.is_recommended), new_hooks[0]
+        )
         for h in new_hooks:
             h.is_recommended = h is chosen
         rec_text = chosen.text
@@ -251,7 +262,9 @@ CRITICAL RULES:
             for c in cta_options_raw
             if c.get("text")
         ]
-        rec_cta = data.get("recommended_cta") or (cta_items[0].text if cta_items else draft.cta)
+        rec_cta = data.get("recommended_cta") or (
+            cta_items[0].text if cta_items else draft.cta
+        )
 
         updated_draft = draft.model_copy(deep=True)
         updated_draft.cta = rec_cta

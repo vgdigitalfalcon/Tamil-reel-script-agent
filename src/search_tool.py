@@ -37,19 +37,25 @@ def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
         for item in raw_results:
             url = item.get("href") or item.get("link") or ""
             if url:
-                results.append({
-                    "title": item.get("title", "Source"),
-                    "url": url,
-                    "snippet": item.get("body", "").strip(),
-                })
+                results.append(
+                    {
+                        "title": item.get("title", "Source"),
+                        "url": url,
+                        "snippet": item.get("body", "").strip(),
+                    }
+                )
     except Exception as e:
-        logger.warning(f"DuckDuckGo search rate-limited or failed for query '{query}': {e}")
+        logger.warning(
+            f"DuckDuckGo search rate-limited or failed for query '{query}': {e}"
+        )
         return []
 
     return results
 
 
-def run_research_queries(queries: List[str], max_per_query: int = 3) -> List[Dict[str, str]]:
+def run_research_queries(
+    queries: List[str], max_per_query: int = 3
+) -> List[Dict[str, str]]:
     """Run a batch of 3-6 queries, deduplicating results by URL."""
     seen_urls = set()
     aggregated: List[Dict[str, str]] = []
@@ -65,7 +71,9 @@ def run_research_queries(queries: List[str], max_per_query: int = 3) -> List[Dic
     return aggregated
 
 
-def _extract_html_title_and_text(raw_html: str, max_chars: int = 1200) -> Dict[str, str]:
+def _extract_html_title_and_text(
+    raw_html: str, max_chars: int = 1200
+) -> Dict[str, str]:
     """Parse title and readable body snippet via BeautifulSoup when available, else regex."""
     try:
         from bs4 import BeautifulSoup
@@ -73,13 +81,28 @@ def _extract_html_title_and_text(raw_html: str, max_chars: int = 1200) -> Dict[s
         soup = BeautifulSoup(raw_html, "html.parser")
         for tag in soup(["script", "style", "noscript", "svg"]):
             tag.decompose()
-        title = soup.title.get_text(" ", strip=True) if soup.title else "Client Reference Page"
+        title = (
+            soup.title.get_text(" ", strip=True)
+            if soup.title
+            else "Client Reference Page"
+        )
         text = " ".join(soup.get_text(" ", strip=True).split())
         return {"title": title[:160], "snippet": text[:max_chars]}
     except ImportError:
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", raw_html, flags=re.IGNORECASE | re.DOTALL)
-        title = html.unescape(title_match.group(1).strip()) if title_match else "Client Reference Page"
-        cleaned = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", raw_html, flags=re.IGNORECASE | re.DOTALL)
+        title_match = re.search(
+            r"<title[^>]*>(.*?)</title>", raw_html, flags=re.IGNORECASE | re.DOTALL
+        )
+        title = (
+            html.unescape(title_match.group(1).strip())
+            if title_match
+            else "Client Reference Page"
+        )
+        cleaned = re.sub(
+            r"<(script|style|noscript)[^>]*>.*?</\1>",
+            " ",
+            raw_html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
         cleaned = re.sub(r"<[^>]+>", " ", cleaned)
         text = " ".join(html.unescape(cleaned).split())
         return {"title": title[:160], "snippet": text[:max_chars]}
@@ -93,9 +116,9 @@ _MAX_FETCH_BYTES = 2_000_000
 class _PinnedTarget(NamedTuple):
     """A URL rewritten to hit one vetted IP, plus what the server must still see."""
 
-    url: str          # same URL with the host replaced by the vetted IP
+    url: str  # same URL with the host replaced by the vetted IP
     host_header: str  # original "host[:port]" for the Host header
-    hostname: str     # original hostname, used for TLS SNI + certificate check
+    hostname: str  # original hostname, used for TLS SNI + certificate check
 
 
 def _resolve_public(url: str) -> Optional[_PinnedTarget]:
@@ -168,9 +191,13 @@ def fetch_reference_url(url: str, timeout: float = 8.0) -> Optional[Dict[str, st
             for _ in range(_MAX_REDIRECTS + 1):
                 target = _resolve_public(current)
                 if target is None:
-                    logger.warning(f"Reference URL blocked (non-public address): '{current}'")
+                    logger.warning(
+                        f"Reference URL blocked (non-public address): '{current}'"
+                    )
                     return None
-                with client.stream("GET", target.url, **_request_kwargs(target)) as resp:
+                with client.stream(
+                    "GET", target.url, **_request_kwargs(target)
+                ) as resp:
                     if resp.is_redirect and resp.headers.get("location"):
                         current = urljoin(current, resp.headers["location"])
                         continue
@@ -181,15 +208,21 @@ def fetch_reference_url(url: str, timeout: float = 8.0) -> Optional[Dict[str, st
                         size += len(chunk)
                         if size >= _MAX_FETCH_BYTES:
                             break
-                    return _parse_reference_text(_decode_capped(chunks, resp.encoding), current)
-            logger.warning(f"Reference URL exceeded {_MAX_REDIRECTS} redirects: '{url}'")
+                    return _parse_reference_text(
+                        _decode_capped(chunks, resp.encoding), current
+                    )
+            logger.warning(
+                f"Reference URL exceeded {_MAX_REDIRECTS} redirects: '{url}'"
+            )
             return None
     except Exception as exc:
         logger.warning(f"Reference URL fetch failed for '{url}': {exc}")
         return None
 
 
-async def async_fetch_reference_url(url: str, timeout: float = 8.0) -> Optional[Dict[str, str]]:
+async def async_fetch_reference_url(
+    url: str, timeout: float = 8.0
+) -> Optional[Dict[str, str]]:
     """Asynchronously fetch and extract clean text from an optional client reference URL."""
     if not url or not url.strip().startswith(("http://", "https://")):
         return None
@@ -199,9 +232,13 @@ async def async_fetch_reference_url(url: str, timeout: float = 8.0) -> Optional[
             for _ in range(_MAX_REDIRECTS + 1):
                 target = await asyncio.to_thread(_resolve_public, current)
                 if target is None:
-                    logger.warning(f"Reference URL blocked (non-public address): '{current}'")
+                    logger.warning(
+                        f"Reference URL blocked (non-public address): '{current}'"
+                    )
                     return None
-                async with client.stream("GET", target.url, **_request_kwargs(target)) as resp:
+                async with client.stream(
+                    "GET", target.url, **_request_kwargs(target)
+                ) as resp:
                     if resp.is_redirect and resp.headers.get("location"):
                         current = urljoin(current, resp.headers["location"])
                         continue
@@ -212,14 +249,20 @@ async def async_fetch_reference_url(url: str, timeout: float = 8.0) -> Optional[
                         size += len(chunk)
                         if size >= _MAX_FETCH_BYTES:
                             break
-                    return _parse_reference_text(_decode_capped(chunks, resp.encoding), current)
-            logger.warning(f"Reference URL exceeded {_MAX_REDIRECTS} redirects: '{url}'")
+                    return _parse_reference_text(
+                        _decode_capped(chunks, resp.encoding), current
+                    )
+            logger.warning(
+                f"Reference URL exceeded {_MAX_REDIRECTS} redirects: '{url}'"
+            )
             return None
     except Exception as exc:
         logger.warning(f"Async reference URL fetch failed for '{url}': {exc}")
         return None
 
 
-async def async_run_research_queries(queries: List[str], max_per_query: int = 3) -> List[Dict[str, str]]:
+async def async_run_research_queries(
+    queries: List[str], max_per_query: int = 3
+) -> List[Dict[str, str]]:
     """Run DuckDuckGo queries in a worker thread without blocking the asyncio event loop."""
     return await asyncio.to_thread(run_research_queries, queries, max_per_query)

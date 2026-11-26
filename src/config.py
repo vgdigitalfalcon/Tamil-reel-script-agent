@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from typing import Dict
+
 from dotenv import load_dotenv
 
 # Load .env file from project root
@@ -25,10 +26,17 @@ ENGLISH_WORD_COUNT_LIMITS = {
 }
 
 
-def get_word_count_limits(duration: int, tone: str = "conversational spoken Tamil") -> Dict[str, int]:
+def get_word_count_limits(
+    duration: int, tone: str = "conversational spoken Tamil"
+) -> Dict[str, int]:
     """Return spoken word-count limits calibrated for the active duration and language mode."""
-    table = ENGLISH_WORD_COUNT_LIMITS if (tone or "").strip() == "English" else WORD_COUNT_LIMITS
+    table = (
+        ENGLISH_WORD_COUNT_LIMITS
+        if (tone or "").strip() == "English"
+        else WORD_COUNT_LIMITS
+    )
     return table.get(duration, table[30])
+
 
 # Standard Prompt Defaults
 DEFAULT_PLATFORM = "Instagram Reels"
@@ -46,7 +54,9 @@ def _get_setting(key: str, default: str = "") -> str:
 # Token & Generation Hardening (Step 1)
 # 3,000 output tokens prevents Tamil Unicode truncation mid-sentence.
 MAX_OUTPUT_TOKENS = int(_get_setting("MAX_OUTPUT_TOKENS", "3000"))
-REGENERATION_MAX_OUTPUT_TOKENS = int(_get_setting("REGENERATION_MAX_OUTPUT_TOKENS", "1000"))
+REGENERATION_MAX_OUTPUT_TOKENS = int(
+    _get_setting("REGENERATION_MAX_OUTPUT_TOKENS", "1000")
+)
 LLM_TEMPERATURE = float(_get_setting("LLM_TEMPERATURE", "0.4"))
 GEMINI_THINKING_LEVEL = _get_setting("GEMINI_THINKING_LEVEL", "low")
 
@@ -100,35 +110,51 @@ def calculate_cost_inr(model_name: str, input_tokens: int, output_tokens: int) -
     if pricing is None:
         pricing = MODEL_PRICING_USD_PER_1M["default"]
 
-    usd_cost = (
-        (max(0, input_tokens) / 1_000_000.0) * pricing["input"]
-        + (max(0, output_tokens) / 1_000_000.0) * pricing["output"]
-    )
+    usd_cost = (max(0, input_tokens) / 1_000_000.0) * pricing["input"] + (
+        max(0, output_tokens) / 1_000_000.0
+    ) * pricing["output"]
     return round(usd_cost * USD_TO_INR_RATE, 4)
 
 
 # CRM Quota & Cost Guardrails
-DEFAULT_CLIENT_MONTHLY_BUDGET_INR = float(_get_setting("DEFAULT_CLIENT_MONTHLY_BUDGET_INR", "60.0"))
-CLIENT_MONTHLY_TOKEN_ESTIMATE = int(_get_setting("CLIENT_MONTHLY_TOKEN_ESTIMATE", "280000"))
+DEFAULT_CLIENT_MONTHLY_BUDGET_INR = float(
+    _get_setting("DEFAULT_CLIENT_MONTHLY_BUDGET_INR", "60.0")
+)
+CLIENT_MONTHLY_TOKEN_ESTIMATE = int(
+    _get_setting("CLIENT_MONTHLY_TOKEN_ESTIMATE", "280000")
+)
 FULL_SCRIPT_BUDGET_INR = float(_get_setting("FULL_SCRIPT_BUDGET_INR", "0.50"))
 REGENERATION_BUDGET_INR = float(_get_setting("REGENERATION_BUDGET_INR", "0.15"))
-QUOTA_RESERVATION_TTL_SECONDS = int(_get_setting("QUOTA_RESERVATION_TTL_SECONDS", "300"))
+QUOTA_RESERVATION_TTL_SECONDS = int(
+    _get_setting("QUOTA_RESERVATION_TTL_SECONDS", "300")
+)
 DAILY_USER_RUN_LIMIT = int(_get_setting("DAILY_USER_RUN_LIMIT", "25"))
 DAILY_USER_TOKEN_LIMIT = int(_get_setting("DAILY_USER_TOKEN_LIMIT", "75000"))
 DAILY_USER_SPEND_LIMIT_INR = float(_get_setting("DAILY_USER_SPEND_LIMIT_INR", "9.0"))
 BONUS_RUNS_DEFAULT = int(_get_setting("BONUS_RUNS_DEFAULT", "10"))
-DUPLICATE_SUBMIT_WINDOW_SECONDS = int(_get_setting("DUPLICATE_SUBMIT_WINDOW_SECONDS", "30"))
+DUPLICATE_SUBMIT_WINDOW_SECONDS = int(
+    _get_setting("DUPLICATE_SUBMIT_WINDOW_SECONDS", "30")
+)
 LOW_BALANCE_WARNING_RATIO = float(_get_setting("LOW_BALANCE_WARNING_RATIO", "0.20"))
 
 # CRM Persistence & Security
 DATABASE_URL = _get_setting("DATABASE_URL", "")
 SQLITE_DB_PATH = Path(_get_setting("SQLITE_DB_PATH", str(ROOT_DIR / "scriptfalcon.db")))
-CRM_JWT_SECRET = _get_setting("CRM_JWT_SECRET", "vg-digital-falcon-dev-secret-change-in-prod")
+CRM_JWT_SECRET = _get_setting(
+    "CRM_JWT_SECRET", "vg-digital-falcon-dev-secret-change-in-prod"
+)
 SUPABASE_JWT_SECRET = _get_setting("SUPABASE_JWT_SECRET", "")
 CRM_ENV = _get_setting("CRM_ENV", "development").strip().lower()
 
-_DEFAULT_JWT_SECRETS = {"vg-digital-falcon-dev-secret-change-in-prod", "change-this-in-production"}
-if CRM_ENV == "production" and not SUPABASE_JWT_SECRET and CRM_JWT_SECRET in _DEFAULT_JWT_SECRETS:
+_DEFAULT_JWT_SECRETS = {
+    "vg-digital-falcon-dev-secret-change-in-prod",
+    "change-this-in-production",
+}
+if (
+    CRM_ENV == "production"
+    and not SUPABASE_JWT_SECRET
+    and CRM_JWT_SECRET in _DEFAULT_JWT_SECRETS
+):
     raise RuntimeError(
         "CRM_ENV=production but CRM_JWT_SECRET is a public default. "
         "Set a long random CRM_JWT_SECRET (or SUPABASE_JWT_SECRET) before starting."

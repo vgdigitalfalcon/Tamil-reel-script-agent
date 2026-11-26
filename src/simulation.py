@@ -5,10 +5,10 @@ scripts that strictly satisfy all 7 ScriptFalcon quality guardrails.
 """
 
 import re
-from typing import Dict, Any, List
-from src.models import ScriptInput, ResearchResult, ScriptDraft
-from src.config import get_word_count_limits
+from typing import Any, Dict, List
 
+from src.config import get_word_count_limits
+from src.models import ResearchResult, ScriptDraft, ScriptInput
 
 _OBJECTIVE_NOUN_MAP: Dict[str, str] = {
     "agency": "ஏஜென்சிக்கு",
@@ -63,7 +63,7 @@ def adapt_objective_to_conversational_tamil(objective: str) -> str:
     clean = (objective or "").strip()
     if not clean:
         return "உங்க பிசினஸுக்கு நல்ல ரிசல்ட்ஸ் வர"
-    if any("\u0B80" <= ch <= "\u0BFF" for ch in clean):
+    if any("\u0b80" <= ch <= "\u0bff" for ch in clean):
         return clean
 
     low = clean.lower()
@@ -111,10 +111,28 @@ def adapt_objective_to_conversational_tamil(objective: str) -> str:
         action_verb = "அதிகரிக்க"
 
     skip_verbs = {
-        "get", "book", "schedule", "download", "claim", "request",
-        "increase", "grow", "boost", "drive", "generate", "for", "more", "the", "a", "an",
+        "get",
+        "book",
+        "schedule",
+        "download",
+        "claim",
+        "request",
+        "increase",
+        "grow",
+        "boost",
+        "drive",
+        "generate",
+        "for",
+        "more",
+        "the",
+        "a",
+        "an",
     }
-    mapped_parts = [_OBJECTIVE_NOUN_MAP[t] for t in tokens if t not in skip_verbs and t in _OBJECTIVE_NOUN_MAP]
+    mapped_parts = [
+        _OBJECTIVE_NOUN_MAP[t]
+        for t in tokens
+        if t not in skip_verbs and t in _OBJECTIVE_NOUN_MAP
+    ]
     if mapped_parts:
         return f"உங்க {' '.join(mapped_parts)} {action_verb}"
     return "உங்க பிசினஸுக்கு நல்ல ரிசல்ட்ஸ் வர"
@@ -124,7 +142,9 @@ class SimulationProvider:
     """Generates duration-calibrated, topic-tailored mock data for offline testing."""
 
     @staticmethod
-    def get_research_fallback(inp: ScriptInput, raw_results: List[Dict[str, str]]) -> Dict[str, Any]:
+    def get_research_fallback(
+        inp: ScriptInput, raw_results: List[Dict[str, str]]
+    ) -> Dict[str, Any]:
         """Generate research JSON fallback based on topic and search results."""
         findings = []
         sources = []
@@ -134,12 +154,14 @@ class SimulationProvider:
             snip = item.get("snippet", "")
             if url:
                 findings.append(f"{title}: {snip[:120]}...")
-                sources.append({
-                    "url": url,
-                    "title": title,
-                    "claim_supported": snip[:100],
-                    "is_verified": True,
-                })
+                sources.append(
+                    {
+                        "url": url,
+                        "title": title,
+                        "claim_supported": snip[:100],
+                        "is_verified": True,
+                    }
+                )
 
         topic_lower = inp.topic.lower()
         if not findings:
@@ -149,36 +171,42 @@ class SimulationProvider:
                     "Slow page speeds increase bounce rates by 90% when moving from 1s to 5s load time.",
                     "Local Google Business Profile optimization accounts for 32% of regional customer calls.",
                 ]
-                sources = [{
-                    "url": "https://developers.google.com/search/docs",
-                    "title": "Google Search Central Guidelines",
-                    "claim_supported": "Page speed and local profile ranking factors",
-                    "is_verified": True,
-                }]
+                sources = [
+                    {
+                        "url": "https://developers.google.com/search/docs",
+                        "title": "Google Search Central Guidelines",
+                        "claim_supported": "Page speed and local profile ranking factors",
+                        "is_verified": True,
+                    }
+                ]
             elif "visa" in topic_lower or "germany" in topic_lower:
                 findings = [
                     "Germany's Chancenkarte requires a minimum score of 6 points based on degree and language.",
                     "Applicants must prove EUR 1,027/month in living expenses via an official blocked account.",
                     "Opportunity card holders are permitted to work up to 20 hours per week part-time.",
                 ]
-                sources = [{
-                    "url": "https://www.make-it-in-germany.com/en/visa-residence/types/job-search-opportunity-card",
-                    "title": "Make It In Germany - Official Government Portal",
-                    "claim_supported": "Chancenkarte 6-point criteria and blocked account funding",
-                    "is_verified": True,
-                }]
+                sources = [
+                    {
+                        "url": "https://www.make-it-in-germany.com/en/visa-residence/types/job-search-opportunity-card",
+                        "title": "Make It In Germany - Official Government Portal",
+                        "claim_supported": "Chancenkarte 6-point criteria and blocked account funding",
+                        "is_verified": True,
+                    }
+                ]
             else:
                 findings = [
                     f"Over 80% of audience members look for clear answers within 5 seconds of discovering {inp.topic}.",
                     "Unoptimized mobile user experiences lead to a 53% drop in customer inquiries.",
                     "Direct and specific calls-to-action increase audience response rates by up to 2.5x.",
                 ]
-                sources = [{
-                    "url": "https://www.hubspot.com/marketing-statistics",
-                    "title": "HubSpot Industry Research Data",
-                    "claim_supported": f"Conversion benchmarks relating to {inp.topic}",
-                    "is_verified": True,
-                }]
+                sources = [
+                    {
+                        "url": "https://www.hubspot.com/marketing-statistics",
+                        "title": "HubSpot Industry Research Data",
+                        "claim_supported": f"Conversion benchmarks relating to {inp.topic}",
+                        "is_verified": True,
+                    }
+                ]
 
         pain_points = [
             f"Spending time and money on {inp.topic} without seeing genuine customer inquiries.",
@@ -191,7 +219,9 @@ class SimulationProvider:
 
         uncertainties = []
         if "visa" in topic_lower or "germany" in topic_lower or "legal" in topic_lower:
-            uncertainties.append("Official government regulations change periodically; always verify current rules on official portals.")
+            uncertainties.append(
+                "Official government regulations change periodically; always verify current rules on official portals."
+            )
 
         return {
             "key_findings": findings[:4],
@@ -203,7 +233,9 @@ class SimulationProvider:
         }
 
     @staticmethod
-    def get_script_fallback(inp: ScriptInput, research: ResearchResult) -> Dict[str, Any]:
+    def get_script_fallback(
+        inp: ScriptInput, research: ResearchResult
+    ) -> Dict[str, Any]:
         """Generate calibrated, humanized, single-narrator script JSON matching duration and tone."""
         tone_lower = inp.tone.strip().lower()
         is_english = tone_lower == "english"
@@ -212,7 +244,9 @@ class SimulationProvider:
         dur = inp.duration
 
         if is_english:
-            hook_1 = f"[Curious tone] Still wondering why {topic} is not bringing results?"
+            hook_1 = (
+                f"[Curious tone] Still wondering why {topic} is not bringing results?"
+            )
             hook_2 = f"[Direct eye contact] Are you making this common {topic} mistake?"
             hook_3 = f"[Stress] Fix your {topic} flow before you post again."
             ctx = "[Pause] Here is the simple fix you can apply today."
@@ -240,13 +274,20 @@ class SimulationProvider:
             engage = "[Question tone] Which tip helps you most? Tell me below."
             cta = f"[Direct eye contact] Want our checklist to {inp.objective.lower()}? DM 'GUIDE' now."
             caption = f"{topic} — avoid these common mistakes and tighten your flow today. Save this reel."
-            hashtags = ["#ReelsTips", "#ShortFormVideo", "#CreatorGrowth", "#DigitalMarketing"]
+            hashtags = [
+                "#ReelsTips",
+                "#ShortFormVideo",
+                "#CreatorGrowth",
+                "#DigitalMarketing",
+            ]
             ost = ["Stop Guessing", "3 Simple Fixes", "Save This Reel"]
 
         elif is_tanglish:
             hook_1 = f"[Curious tone] {topic} pathi innum ungalukku confusion irukka?"
             hook_2 = f"[Direct eye contact] 90% per {topic}-la panra periya mistake enna theriyuma?"
-            hook_3 = f"[Stress] {topic}-la results varalaya? Neenga idhai check pannunga!"
+            hook_3 = (
+                f"[Stress] {topic}-la results varalaya? Neenga idhai check pannunga!"
+            )
             ctx = "[Pause] Romba simple reason: Namma neraiya per basic steps-ah miss pannitu shortcuts thedurom."
 
             body = [
@@ -272,7 +313,13 @@ class SimulationProvider:
             engage = f"[Question tone] Neenga {topic}-la enna challenge face panreenga? Comment-la sollunga."
             cta = f"[Direct eye contact] {inp.objective.capitalize()}-ku clean checklist venumna, 'REEL' nu DM pannunga!"
             caption = f"{topic} — avoid these costly mistakes and fix your flow today. Save this reel!"
-            hashtags = ["#TamilReels", "#TamilCreators", "#DigitalTamil", "#TamilBusiness", "#QuickTips"]
+            hashtags = [
+                "#TamilReels",
+                "#TamilCreators",
+                "#DigitalTamil",
+                "#TamilBusiness",
+                "#QuickTips",
+            ]
             ost = [f"{topic[:25]} Mistakes", "3 Simple Fixes", "Save This Reel"]
 
         else:  # Natural Conversational Spoken Tamil Script (Zero Sen-Tamil, Respectful Neenga/Namma)
@@ -307,7 +354,9 @@ class SimulationProvider:
                     "9. [Pause] ஒன்பதாவது: சின்ன மாற்றம் கூட பெரிய வளர்ச்சி தரும், அதனால இன்னைக்கே இதை ஆரம்பிங்க."
                 )
 
-            engage = "[Question tone] இதுல எந்த விஷயம் நீங்க ட்ரை பண்ணிருக்கீங்க? கமெண்ட்ல சொல்லுங்க."
+            engage = (
+                "[Question tone] இதுல எந்த விஷயம் நீங்க ட்ரை பண்ணிருக்கீங்க? கமெண்ட்ல சொல்லுங்க."
+            )
             adapted_obj = adapt_objective_to_conversational_tamil(inp.objective)
             if inp.tone == "Tamil":
                 cta = f"[Direct eye contact] {adapted_obj} கைடு வேணும்னா 'ரீல்'-னு மெசேஜ் அனுப்புங்க!"
@@ -319,9 +368,24 @@ class SimulationProvider:
 
         return {
             "hooks": [
-                {"text": hook_1, "type": "question", "is_recommended": False, "reason": "Direct respectful query"},
-                {"text": hook_2, "type": "bold statement", "is_recommended": True, "reason": "High curiosity pattern interrupt"},
-                {"text": hook_3, "type": "pain-point", "is_recommended": False, "reason": "Direct relatable problem"},
+                {
+                    "text": hook_1,
+                    "type": "question",
+                    "is_recommended": False,
+                    "reason": "Direct respectful query",
+                },
+                {
+                    "text": hook_2,
+                    "type": "bold statement",
+                    "is_recommended": True,
+                    "reason": "High curiosity pattern interrupt",
+                },
+                {
+                    "text": hook_3,
+                    "type": "pain-point",
+                    "is_recommended": False,
+                    "reason": "Direct relatable problem",
+                },
             ],
             "hook": hook_2,
             "context": ctx,
@@ -348,7 +412,9 @@ class SimulationProvider:
         elif is_tanglish:
             h1 = f"[Curious tone] {topic} pathi ungalukku indha vishayam theriyuma?"
             h2 = f"[Direct eye contact] Neenga innum {topic}-ah pazhaya style-la panreengala?"
-            h3 = f"[Stress] {topic}-la time waste aagudha? Indha simple change paarunga!"
+            h3 = (
+                f"[Stress] {topic}-la time waste aagudha? Indha simple change paarunga!"
+            )
         else:
             h1 = f"[Curious tone] {topic} பத்தி உங்களுக்கு இந்த முக்கியமான விஷயம் தெரியுமா?"
             h2 = f"[Direct eye contact] நீங்க இன்னும் {topic}-ஐ பழைய முறையில்தான் பண்றீங்களா?"
@@ -356,9 +422,24 @@ class SimulationProvider:
 
         return {
             "hooks": [
-                {"text": h1, "type": "question", "is_recommended": False, "reason": "Respectful curiosity question"},
-                {"text": h2, "type": "bold statement", "is_recommended": True, "reason": "Strong pattern interrupt"},
-                {"text": h3, "type": "pain-point", "is_recommended": False, "reason": "Direct relatable pain point"},
+                {
+                    "text": h1,
+                    "type": "question",
+                    "is_recommended": False,
+                    "reason": "Respectful curiosity question",
+                },
+                {
+                    "text": h2,
+                    "type": "bold statement",
+                    "is_recommended": True,
+                    "reason": "Strong pattern interrupt",
+                },
+                {
+                    "text": h3,
+                    "type": "pain-point",
+                    "is_recommended": False,
+                    "reason": "Direct relatable pain point",
+                },
             ],
             "recommended_hook": h2,
         }
@@ -390,15 +471,29 @@ class SimulationProvider:
 
         return {
             "cta_options": [
-                {"text": c1, "is_recommended": True, "reason": "High-intent direct messaging action"},
-                {"text": c2, "is_recommended": False, "reason": "Comment engagement driver"},
-                {"text": c3, "is_recommended": False, "reason": "Profile bio visit driver"},
+                {
+                    "text": c1,
+                    "is_recommended": True,
+                    "reason": "High-intent direct messaging action",
+                },
+                {
+                    "text": c2,
+                    "is_recommended": False,
+                    "reason": "Comment engagement driver",
+                },
+                {
+                    "text": c3,
+                    "is_recommended": False,
+                    "reason": "Profile bio visit driver",
+                },
             ],
             "recommended_cta": c1,
         }
 
     @staticmethod
-    def get_quality_fallback(inp: ScriptInput, research: ResearchResult, draft: ScriptDraft) -> Dict[str, Any]:
+    def get_quality_fallback(
+        inp: ScriptInput, research: ResearchResult, draft: ScriptDraft
+    ) -> Dict[str, Any]:
         """Generate 7-criteria quality check evaluation fallback."""
         limits = get_word_count_limits(inp.duration, inp.tone)
         actual_words = draft.calculate_word_count()
@@ -415,11 +510,16 @@ class SimulationProvider:
         is_english = tone_lower == "english"
         is_tanglish = "tanglish" in tone_lower
         if len(draft.extract_modulation_cues()) < 2:
-            if "[Direct eye contact]" not in revised["hook"] and "[" not in revised["hook"]:
+            if (
+                "[Direct eye contact]" not in revised["hook"]
+                and "[" not in revised["hook"]
+            ):
                 revised["hook"] = f"[Direct eye contact] {revised['hook']}"
             if "[" not in revised["context"]:
                 revised["context"] = f"[Pause] {revised['context']}"
-            fixes.append("Added inline vocal modulation cues ([Direct eye contact], [Pause]) for natural delivery.")
+            fixes.append(
+                "Added inline vocal modulation cues ([Direct eye contact], [Pause]) for natural delivery."
+            )
 
         if actual_words < limits["min"]:
             if is_english:
@@ -443,24 +543,40 @@ class SimulationProvider:
                 revised["body_points"].append(filler_pool[idx])
                 temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
                 idx += 1
-            fixes.append(f"Auto-expanded script to hit calibrated duration limit ({limits['min']}-{limits['max']} words).")
+            fixes.append(
+                f"Auto-expanded script to hit calibrated duration limit ({limits['min']}-{limits['max']} words)."
+            )
             duration_note = f"Word count ({actual_words}w) auto-expanded to {temp_draft.word_count}w within {limits['min']}-{limits['max']}w limit."
         elif actual_words > limits["max"]:
             # Trim excess body points if over the duration word window
             temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
-            while temp_draft.word_count > limits["max"] and len(revised["body_points"]) > 2:
+            while (
+                temp_draft.word_count > limits["max"]
+                and len(revised["body_points"]) > 2
+            ):
                 revised["body_points"].pop()
                 temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
-            fixes.append(f"Trimmed script filler points to fit inside {limits['min']}-{limits['max']} word limit.")
+            fixes.append(
+                f"Trimmed script filler points to fit inside {limits['min']}-{limits['max']} word limit."
+            )
             duration_note = f"Word count ({actual_words}w) trimmed to {temp_draft.word_count}w within {limits['min']}-{limits['max']}w window."
         else:
             duration_note = f"Word count ({actual_words}w) is calibrated within {limits['min']}-{limits['max']} words."
 
         return {
             "checks": {
-                "unsupported_claims": {"status": "PASS", "notes": "All claims are mapped to verified research sources."},
-                "repetition": {"status": "PASS", "notes": "Each script segment presents distinct, non-repetitive ideas."},
-                "weak_cta": {"status": "PASS", "notes": f"CTA is action-oriented and specifically targets '{inp.objective}'."},
+                "unsupported_claims": {
+                    "status": "PASS",
+                    "notes": "All claims are mapped to verified research sources.",
+                },
+                "repetition": {
+                    "status": "PASS",
+                    "notes": "Each script segment presents distinct, non-repetitive ideas.",
+                },
+                "weak_cta": {
+                    "status": "PASS",
+                    "notes": f"CTA is action-oriented and specifically targets '{inp.objective}'.",
+                },
                 "unnatural_tamil": {
                     "status": "PASS",
                     "notes": (

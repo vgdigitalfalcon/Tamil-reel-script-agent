@@ -4,24 +4,24 @@ All tests run completely offline and deterministically without consuming
 LLM API quota or depending on live internet connections.
 """
 
-import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
+from src.llm import clean_json_response
 from src.models import (
+    CheckItem,
+    CtaOptionItem,
+    FullDeliverable,
+    HookItem,
+    QualityCheckResult,
+    ResearchResult,
     ScriptDraft,
     ScriptInput,
-    ResearchResult,
-    QualityCheckResult,
-    CheckItem,
-    FullDeliverable,
     SourceItem,
-    HookItem,
-    CtaOptionItem,
 )
-from src.llm import clean_json_response
 from src.search_tool import search_web
 
 
@@ -82,7 +82,9 @@ def test_clean_json_response():
     assert parsed_1 == {"status": "PASS", "score": 95}
 
     # Test 2: Surrounding text before and after JSON
-    sample_2 = 'Here is your audited result:\n```json\n{"valid": true}\n```\nHope this helps!'
+    sample_2 = (
+        'Here is your audited result:\n```json\n{"valid": true}\n```\nHope this helps!'
+    )
     parsed_2 = clean_json_response(sample_2)
     assert parsed_2 == {"valid": True}
 
@@ -107,7 +109,9 @@ def test_deliverable_serialization(tmp_path: Path):
     research = ResearchResult(
         topic="Test Topic Leads",
         chosen_angle="Test Angle",
-        sources=[SourceItem(url="https://example.com/test", claim_supported="Valid claim")],
+        sources=[
+            SourceItem(url="https://example.com/test", claim_supported="Valid claim")
+        ],
     )
     draft = ScriptDraft(
         hook="Test Hook",
@@ -117,8 +121,12 @@ def test_deliverable_serialization(tmp_path: Path):
         engagement="Test question?",
         cta="DM us for audit",
         cta_options=[
-            CtaOptionItem(text="DM us for audit", is_recommended=True, reason="Direct inquiry"),
-            CtaOptionItem(text="Comment AUDIT below", is_recommended=False, reason="Low friction"),
+            CtaOptionItem(
+                text="DM us for audit", is_recommended=True, reason="Direct inquiry"
+            ),
+            CtaOptionItem(
+                text="Comment AUDIT below", is_recommended=False, reason="Low friction"
+            ),
         ],
     )
     qc = QualityCheckResult(
@@ -172,7 +180,9 @@ def _create_mock_deliverable() -> FullDeliverable:
     research = ResearchResult(
         topic="Mocked Business Leads Topic",
         chosen_angle="Conversion Optimization",
-        sources=[SourceItem(url="https://example.com/mock", claim_supported="Mocked claim")],
+        sources=[
+            SourceItem(url="https://example.com/mock", claim_supported="Mocked claim")
+        ],
     )
     draft = ScriptDraft(
         hook="Mocked Hook",
@@ -182,7 +192,9 @@ def _create_mock_deliverable() -> FullDeliverable:
         engagement="Agree pannreengala?",
         cta="Comment LEADS below",
         cta_options=[
-            CtaOptionItem(text="Comment LEADS below", is_recommended=True, reason="Direct"),
+            CtaOptionItem(
+                text="Comment LEADS below", is_recommended=True, reason="Direct"
+            ),
         ],
     )
     qc = QualityCheckResult(
@@ -203,6 +215,7 @@ def _create_mock_deliverable() -> FullDeliverable:
 def test_fastapi_health_endpoint():
     """Verify FastAPI health endpoint responds correctly without network."""
     from fastapi.testclient import TestClient
+
     from api import app
 
     client = TestClient(app)
@@ -216,6 +229,7 @@ def test_fastapi_health_endpoint():
 def test_fastapi_generate_endpoint_offline_mocked():
     """Verify script generation via FastAPI endpoint using offline mock (Fix 8)."""
     from fastapi.testclient import TestClient
+
     import api
 
     mock_deliverable = _create_mock_deliverable()
@@ -242,21 +256,48 @@ def test_pipeline_offline_execution():
     """Verify 3-step pipeline can execute fully offline with mocked search and LLM."""
     from src.pipeline import TamilReelScriptPipeline
 
-    mock_search = [{"title": "Web Leads Guide", "url": "https://sample.org/leads", "snippet": "Tips for conversion"}]
+    mock_search = [
+        {
+            "title": "Web Leads Guide",
+            "url": "https://sample.org/leads",
+            "snippet": "Tips for conversion",
+        }
+    ]
     mock_research_data = {
         "topic": "Why Websites Fail",
         "key_findings": ["Slow speed", "No mobile responsiveness"],
         "pain_points": ["High ad spend, zero calls"],
         "chosen_angle": "Conversion breakdown",
         "angle_reason": "Relatable to business owners",
-        "sources": [{"title": "Web Leads Guide", "url": "https://sample.org/leads", "claim_supported": "Mobile issues"}],
-        "uncertainties": []
+        "sources": [
+            {
+                "title": "Web Leads Guide",
+                "url": "https://sample.org/leads",
+                "claim_supported": "Mobile issues",
+            }
+        ],
+        "uncertainties": [],
     }
     mock_script_data = {
         "hooks": [
-            {"type": "question", "text": "Website irundhum leads varalaya?", "reason": "Curiosity", "is_recommended": True},
-            {"type": "pain-point", "text": "Ad spend waste aagudha?", "reason": "Pain", "is_recommended": False},
-            {"type": "bold statement", "text": "Website create panradhu waste!", "reason": "Shock", "is_recommended": False}
+            {
+                "type": "question",
+                "text": "Website irundhum leads varalaya?",
+                "reason": "Curiosity",
+                "is_recommended": True,
+            },
+            {
+                "type": "pain-point",
+                "text": "Ad spend waste aagudha?",
+                "reason": "Pain",
+                "is_recommended": False,
+            },
+            {
+                "type": "bold statement",
+                "text": "Website create panradhu waste!",
+                "reason": "Shock",
+                "is_recommended": False,
+            },
         ],
         "hook": "Website irundhum leads varalaya?",
         "context": "Nariya business owners lakhs spend panraanga but inquiry varadhu.",
@@ -264,11 +305,15 @@ def test_pipeline_offline_execution():
         "engagement": "Unga site speed check panniteengala?",
         "cta": "Free audit-ku DM pannunga!",
         "cta_options": [
-            {"text": "Free audit-ku DM pannunga!", "reason": "High intent", "is_recommended": True}
+            {
+                "text": "Free audit-ku DM pannunga!",
+                "reason": "High intent",
+                "is_recommended": True,
+            }
         ],
         "on_screen_texts": ["No Leads?", "Check Speed", "Add CTA"],
         "caption": "Save this reel for your business! #TamilBusiness #DigitalMarketing",
-        "hashtags": ["#TamilBusiness", "#DigitalMarketing"]
+        "hashtags": ["#TamilBusiness", "#DigitalMarketing"],
     }
     mock_qc_data = {
         "unsupported_claims": {"status": "PASS", "notes": "ok"},
@@ -276,7 +321,7 @@ def test_pipeline_offline_execution():
         "weak_cta": {"status": "PASS", "notes": "ok"},
         "unnatural_tamil": {"status": "PASS", "notes": "ok"},
         "duration_fit": {"status": "PASS", "notes": "ok"},
-        "fixes_applied": []
+        "fixes_applied": [],
     }
 
     def mock_generate_json(*args, **kwargs):
@@ -284,19 +329,24 @@ def test_pipeline_offline_execution():
         user_prompt = kwargs.get("user_prompt", args[1] if len(args) > 1 else "")
         if "Research" in system_prompt or "RESEARCH" in system_prompt:
             return mock_research_data
-        elif "Quality" in system_prompt or "5-point" in system_prompt or "audit" in user_prompt.lower():
+        elif (
+            "Quality" in system_prompt
+            or "5-point" in system_prompt
+            or "audit" in user_prompt.lower()
+        ):
             return mock_qc_data
         else:
             return mock_script_data
 
-    with patch("src.agents.research_agent.run_research_queries", return_value=mock_search), \
-         patch("src.llm.LLMClient.generate_json", side_effect=mock_generate_json):
-
+    with (
+        patch(
+            "src.agents.research_agent.run_research_queries", return_value=mock_search
+        ),
+        patch("src.llm.LLMClient.generate_json", side_effect=mock_generate_json),
+    ):
         pipeline = TamilReelScriptPipeline()
         inp = ScriptInput.create_with_defaults(
-            topic="Why Websites Fail",
-            duration=30,
-            tone="Tanglish"
+            topic="Why Websites Fail", duration=30, tone="Tanglish"
         )
         deliverable = pipeline.run(inp)
 
@@ -305,5 +355,3 @@ def test_pipeline_offline_execution():
         assert deliverable.script.word_count > 0
         assert len(deliverable.script.hooks) == 3
         assert deliverable.quality_check.overall_passed is True
-
-

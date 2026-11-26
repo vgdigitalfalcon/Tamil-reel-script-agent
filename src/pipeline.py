@@ -8,7 +8,12 @@ from src.agents.quality_agent import QualityAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.script_agent import ScriptAgent
 from src.config import FULL_SCRIPT_BUDGET_INR, REGENERATION_BUDGET_INR
-from src.db import CRMDatabase, ClientNotFoundError, DeliverableNotFoundError, build_dedup_key
+from src.db import (
+    ClientNotFoundError,
+    CRMDatabase,
+    DeliverableNotFoundError,
+    build_dedup_key,
+)
 from src.llm import LLMClient
 from src.models import FullDeliverable, ScriptInput
 
@@ -52,7 +57,9 @@ class TamilReelScriptPipeline:
     def quality_agent(self) -> QualityAgent:
         return QualityAgent(self.llm)
 
-    def run(self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None) -> FullDeliverable:
+    def run(
+        self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None
+    ) -> FullDeliverable:
         """Synchronously execute generation pipeline based on mode."""
         logger.info(f"Running pipeline for topic: '{inp.topic}' | Mode: '{inp.mode}'")
 
@@ -75,7 +82,9 @@ class TamilReelScriptPipeline:
         else:
             return self._run_full(inp)
 
-    async def arun(self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None) -> FullDeliverable:
+    async def arun(
+        self, inp: ScriptInput, previous_deliverable: Optional[FullDeliverable] = None
+    ) -> FullDeliverable:
         """Non-blocking async pipeline execution for FastAPI concurrent requests."""
         logger.info(f"Async pipeline for topic: '{inp.topic}' | Mode: '{inp.mode}'")
 
@@ -85,7 +94,9 @@ class TamilReelScriptPipeline:
                 base = await self._arun_full(inp)
                 inp.mode = "regenerate_hook"
                 return await asyncio.to_thread(self._regenerate_hook, inp, base)
-            return await asyncio.to_thread(self._regenerate_hook, inp, previous_deliverable)
+            return await asyncio.to_thread(
+                self._regenerate_hook, inp, previous_deliverable
+            )
 
         elif inp.mode == "regenerate_cta":
             if not previous_deliverable:
@@ -93,7 +104,9 @@ class TamilReelScriptPipeline:
                 base = await self._arun_full(inp)
                 inp.mode = "regenerate_cta"
                 return await asyncio.to_thread(self._regenerate_cta, inp, base)
-            return await asyncio.to_thread(self._regenerate_cta, inp, previous_deliverable)
+            return await asyncio.to_thread(
+                self._regenerate_cta, inp, previous_deliverable
+            )
 
         else:
             return await self._arun_full(inp)
@@ -109,22 +122,37 @@ class TamilReelScriptPipeline:
         """Inject Client Brand DNA and load saved state for fast-path regeneration."""
         brand_dna = db.get_client_brand_dna(client_id)
         if not brand_dna:
-            raise ClientNotFoundError(f"Client '{client_id}' not found in CRM database.")
+            raise ClientNotFoundError(
+                f"Client '{client_id}' not found in CRM database."
+            )
 
         enriched_inp = inp.model_copy(deep=True)
         enriched_inp.client_id = client_id
         enriched_inp.brand_dna = brand_dna
-        if (not enriched_inp.audience or enriched_inp.audience == "General Tamil content audience") and brand_dna.target_audience:
+        if (
+            not enriched_inp.audience
+            or enriched_inp.audience == "General Tamil content audience"
+        ) and brand_dna.target_audience:
             enriched_inp.audience = brand_dna.target_audience
-        if (not enriched_inp.niche or enriched_inp.niche == "Business / Digital / Career") and brand_dna.industry:
+        if (
+            not enriched_inp.niche
+            or enriched_inp.niche == "Business / Digital / Career"
+        ) and brand_dna.industry:
             enriched_inp.niche = brand_dna.industry
 
-        if enriched_inp.mode in ("regenerate_hook", "regenerate_cta") and previous_deliverable is None:
+        if (
+            enriched_inp.mode in ("regenerate_hook", "regenerate_cta")
+            and previous_deliverable is None
+        ):
             if not previous_deliverable_id:
-                raise DeliverableNotFoundError("deliverable_id is required for CRM hook/CTA regeneration.")
+                raise DeliverableNotFoundError(
+                    "deliverable_id is required for CRM hook/CTA regeneration."
+                )
             previous_deliverable = db.get_deliverable(previous_deliverable_id)
             if not previous_deliverable:
-                raise DeliverableNotFoundError(f"Deliverable '{previous_deliverable_id}' not found.")
+                raise DeliverableNotFoundError(
+                    f"Deliverable '{previous_deliverable_id}' not found."
+                )
 
         return enriched_inp, previous_deliverable
 
@@ -150,7 +178,13 @@ class TamilReelScriptPipeline:
             else FULL_SCRIPT_BUDGET_INR
         )
         dedup_key = (
-            build_dedup_key(client_id, user_id, enriched_inp.topic, enriched_inp.duration, enriched_inp.mode)
+            build_dedup_key(
+                client_id,
+                user_id,
+                enriched_inp.topic,
+                enriched_inp.duration,
+                enriched_inp.mode,
+            )
             if enable_dedup
             else None
         )
@@ -183,7 +217,9 @@ class TamilReelScriptPipeline:
                 user_id=user_id,
                 parent_deliverable_id=previous_deliverable_id,
             )
-            db.link_run_deliverable(reservation_id=reservation_id, deliverable_id=deliverable_id)
+            db.link_run_deliverable(
+                reservation_id=reservation_id, deliverable_id=deliverable_id
+            )
             return deliverable
         except Exception:
             db.refund_quota(reservation_id)
@@ -216,7 +252,13 @@ class TamilReelScriptPipeline:
             else FULL_SCRIPT_BUDGET_INR
         )
         dedup_key = (
-            build_dedup_key(client_id, user_id, enriched_inp.topic, enriched_inp.duration, enriched_inp.mode)
+            build_dedup_key(
+                client_id,
+                user_id,
+                enriched_inp.topic,
+                enriched_inp.duration,
+                enriched_inp.mode,
+            )
             if enable_dedup
             else None
         )
@@ -251,7 +293,11 @@ class TamilReelScriptPipeline:
                 user_id=user_id,
                 parent_deliverable_id=previous_deliverable_id,
             )
-            await asyncio.to_thread(db.link_run_deliverable, reservation_id=reservation_id, deliverable_id=deliverable_id)
+            await asyncio.to_thread(
+                db.link_run_deliverable,
+                reservation_id=reservation_id,
+                deliverable_id=deliverable_id,
+            )
             return deliverable
         except Exception:
             await asyncio.to_thread(db.refund_quota, reservation_id)
@@ -259,18 +305,28 @@ class TamilReelScriptPipeline:
 
     def _run_full(self, inp: ScriptInput) -> FullDeliverable:
         """Standard 3-Step Execution: Research -> Script -> 7-Criteria LLM Quality Audit."""
-        research_agent, script_agent, quality_agent = self.research_agent, self.script_agent, self.quality_agent
+        research_agent, script_agent, quality_agent = (
+            self.research_agent,
+            self.script_agent,
+            self.quality_agent,
+        )
         logger.info("[Step 1/3] Executing Research Agent...")
         research = research_agent.execute(inp)
 
-        logger.info("[Step 2/3] Executing Script Agent for hooks and humanized script...")
+        logger.info(
+            "[Step 2/3] Executing Script Agent for hooks and humanized script..."
+        )
         draft = script_agent.execute(inp, research)
 
         logger.info("[Step 3/3] Executing 7-Criteria Quality Compliance Agent...")
         qc, certified_script = quality_agent.execute(inp, research, draft)
 
         usage_summary = _aggregate_usage(
-            [research_agent.last_usage, script_agent.last_usage, quality_agent.last_usage]
+            [
+                research_agent.last_usage,
+                script_agent.last_usage,
+                quality_agent.last_usage,
+            ]
         )
 
         return FullDeliverable(
@@ -284,13 +340,23 @@ class TamilReelScriptPipeline:
 
     async def _arun_full(self, inp: ScriptInput) -> FullDeliverable:
         """Non-blocking async 3-Step Execution."""
-        research_agent, script_agent, quality_agent = self.research_agent, self.script_agent, self.quality_agent
+        research_agent, script_agent, quality_agent = (
+            self.research_agent,
+            self.script_agent,
+            self.quality_agent,
+        )
         research = await research_agent.aexecute(inp)
         draft = await asyncio.to_thread(script_agent.execute, inp, research)
-        qc, certified_script = await asyncio.to_thread(quality_agent.execute, inp, research, draft)
+        qc, certified_script = await asyncio.to_thread(
+            quality_agent.execute, inp, research, draft
+        )
 
         usage_summary = _aggregate_usage(
-            [research_agent.last_usage, script_agent.last_usage, quality_agent.last_usage]
+            [
+                research_agent.last_usage,
+                script_agent.last_usage,
+                quality_agent.last_usage,
+            ]
         )
 
         return FullDeliverable(
@@ -302,12 +368,18 @@ class TamilReelScriptPipeline:
             **usage_summary,
         )
 
-    def _regenerate_hook(self, inp: ScriptInput, base: FullDeliverable) -> FullDeliverable:
+    def _regenerate_hook(
+        self, inp: ScriptInput, base: FullDeliverable
+    ) -> FullDeliverable:
         """Fast-path hook regeneration: skips Step 1 search & Step 3 LLM audit (~75% token reduction)."""
-        logger.info("Executing fast-path regeneration for HOOKS (0-LLM Python audit)...")
+        logger.info(
+            "Executing fast-path regeneration for HOOKS (0-LLM Python audit)..."
+        )
         script_agent = self.script_agent
         updated_draft = script_agent.regenerate_hooks(inp, base.script)
-        qc, certified_script = self.quality_agent.audit_fast_path(inp, updated_draft, mode="regenerate_hook")
+        qc, certified_script = self.quality_agent.audit_fast_path(
+            inp, updated_draft, mode="regenerate_hook"
+        )
 
         usage_summary = _aggregate_usage([script_agent.last_usage])
 
@@ -320,12 +392,16 @@ class TamilReelScriptPipeline:
             **usage_summary,
         )
 
-    def _regenerate_cta(self, inp: ScriptInput, base: FullDeliverable) -> FullDeliverable:
+    def _regenerate_cta(
+        self, inp: ScriptInput, base: FullDeliverable
+    ) -> FullDeliverable:
         """Fast-path CTA regeneration: skips Step 1 search & Step 3 LLM audit (~75% token reduction)."""
         logger.info("Executing fast-path regeneration for CTA (0-LLM Python audit)...")
         script_agent = self.script_agent
         updated_draft = script_agent.regenerate_cta(inp, base.script)
-        qc, certified_script = self.quality_agent.audit_fast_path(inp, updated_draft, mode="regenerate_cta")
+        qc, certified_script = self.quality_agent.audit_fast_path(
+            inp, updated_draft, mode="regenerate_cta"
+        )
 
         usage_summary = _aggregate_usage([script_agent.last_usage])
 

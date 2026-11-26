@@ -75,7 +75,9 @@ def _iso_utc(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
-def build_dedup_key(client_id: str, user_id: str, topic: str, duration: int, mode: str = "full_script") -> str:
+def build_dedup_key(
+    client_id: str, user_id: str, topic: str, duration: int, mode: str = "full_script"
+) -> str:
     """Create deterministic SHA-256 key for 30-second duplicate submission locking."""
     raw = f"{client_id.strip()}|{user_id.strip()}|{topic.strip().lower()}|{duration}|{mode}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -86,7 +88,9 @@ class CRMDatabase:
 
     def __init__(self, database_url: Optional[str] = None):
         raw_url = (database_url if database_url is not None else DATABASE_URL).strip()
-        self.is_postgres = raw_url.startswith("postgresql://") or raw_url.startswith("postgres://")
+        self.is_postgres = raw_url.startswith("postgresql://") or raw_url.startswith(
+            "postgres://"
+        )
         self.database_url = raw_url
         self._lock = threading.RLock()
         self._shared_sqlite_conn: Optional[sqlite3.Connection] = None
@@ -95,10 +99,12 @@ class CRMDatabase:
         if self.is_postgres:
             try:
                 import psycopg
+
                 self._pg_driver = ("psycopg", psycopg)
             except ImportError:
                 try:
                     import psycopg2
+
                     self._pg_driver = ("psycopg2", psycopg2)
                 except ImportError as exc:
                     raise RuntimeError(
@@ -106,7 +112,7 @@ class CRMDatabase:
                     ) from exc
         else:
             if raw_url.startswith("sqlite:///"):
-                sqlite_target = raw_url[len("sqlite:///"):]
+                sqlite_target = raw_url[len("sqlite:///") :]
             elif raw_url == ":memory:":
                 sqlite_target = ":memory:"
             else:
@@ -115,7 +121,9 @@ class CRMDatabase:
             if sqlite_target != ":memory:":
                 Path(sqlite_target).parent.mkdir(parents=True, exist_ok=True)
             else:
-                self._shared_sqlite_conn = sqlite3.connect(":memory:", check_same_thread=False)
+                self._shared_sqlite_conn = sqlite3.connect(
+                    ":memory:", check_same_thread=False
+                )
                 self._shared_sqlite_conn.row_factory = sqlite3.Row
 
         self.init_schema()
@@ -123,7 +131,9 @@ class CRMDatabase:
     def _get_sqlite_conn(self) -> sqlite3.Connection:
         if self._shared_sqlite_conn is not None:
             return self._shared_sqlite_conn
-        conn = sqlite3.connect(self._sqlite_target, timeout=15.0, check_same_thread=False)
+        conn = sqlite3.connect(
+            self._sqlite_target, timeout=15.0, check_same_thread=False
+        )
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -134,7 +144,9 @@ class CRMDatabase:
     def init_schema(self) -> None:
         """Create CRM tables and apply additive column migrations if needed."""
         if self.is_postgres:
-            schema_sql = (Path(__file__).resolve().parent.parent / "sql" / "schema.sql").read_text(encoding="utf-8")
+            schema_sql = (
+                Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
+            ).read_text(encoding="utf-8")
             with self._get_pg_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(schema_sql)
@@ -263,31 +275,66 @@ class CRMDatabase:
                     """
                 )
                 # Additive column migrations for pre-existing local SQLite databases
-                cq_cols = {r["name"] for r in conn.execute("PRAGMA table_info(client_quotas)").fetchall()}
+                cq_cols = {
+                    r["name"]
+                    for r in conn.execute("PRAGMA table_info(client_quotas)").fetchall()
+                }
                 if "monthly_budget_inr" not in cq_cols:
-                    conn.execute("ALTER TABLE client_quotas ADD COLUMN monthly_budget_inr REAL NOT NULL DEFAULT 0.0")
-                qr_cols = {r["name"] for r in conn.execute("PRAGMA table_info(quota_reservations)").fetchall()}
+                    conn.execute(
+                        "ALTER TABLE client_quotas ADD COLUMN monthly_budget_inr REAL NOT NULL DEFAULT 0.0"
+                    )
+                qr_cols = {
+                    r["name"]
+                    for r in conn.execute(
+                        "PRAGMA table_info(quota_reservations)"
+                    ).fetchall()
+                }
                 if "dedup_key" not in qr_cols:
-                    conn.execute("ALTER TABLE quota_reservations ADD COLUMN dedup_key TEXT")
+                    conn.execute(
+                        "ALTER TABLE quota_reservations ADD COLUMN dedup_key TEXT"
+                    )
                 if "usage_date" not in qr_cols:
-                    conn.execute("ALTER TABLE quota_reservations ADD COLUMN usage_date TEXT")
+                    conn.execute(
+                        "ALTER TABLE quota_reservations ADD COLUMN usage_date TEXT"
+                    )
                 if "input_tokens" not in qr_cols:
-                    conn.execute("ALTER TABLE quota_reservations ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0")
+                    conn.execute(
+                        "ALTER TABLE quota_reservations ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0"
+                    )
                 if "output_tokens" not in qr_cols:
-                    conn.execute("ALTER TABLE quota_reservations ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0")
+                    conn.execute(
+                        "ALTER TABLE quota_reservations ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0"
+                    )
                 if "tokens_used" not in qr_cols:
-                    conn.execute("ALTER TABLE quota_reservations ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0")
-                udu_cols = {r["name"] for r in conn.execute("PRAGMA table_info(user_daily_usage)").fetchall()}
+                    conn.execute(
+                        "ALTER TABLE quota_reservations ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0"
+                    )
+                udu_cols = {
+                    r["name"]
+                    for r in conn.execute(
+                        "PRAGMA table_info(user_daily_usage)"
+                    ).fetchall()
+                }
                 if "bonus_runs_granted" not in udu_cols:
-                    conn.execute("ALTER TABLE user_daily_usage ADD COLUMN bonus_runs_granted INTEGER NOT NULL DEFAULT 0")
+                    conn.execute(
+                        "ALTER TABLE user_daily_usage ADD COLUMN bonus_runs_granted INTEGER NOT NULL DEFAULT 0"
+                    )
                 if "input_tokens" not in udu_cols:
-                    conn.execute("ALTER TABLE user_daily_usage ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0")
+                    conn.execute(
+                        "ALTER TABLE user_daily_usage ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0"
+                    )
                 if "output_tokens" not in udu_cols:
-                    conn.execute("ALTER TABLE user_daily_usage ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0")
+                    conn.execute(
+                        "ALTER TABLE user_daily_usage ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0"
+                    )
                 if "tokens_used" not in udu_cols:
-                    conn.execute("ALTER TABLE user_daily_usage ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0")
+                    conn.execute(
+                        "ALTER TABLE user_daily_usage ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0"
+                    )
                 if "cost_inr" not in udu_cols:
-                    conn.execute("ALTER TABLE user_daily_usage ADD COLUMN cost_inr REAL NOT NULL DEFAULT 0.0")
+                    conn.execute(
+                        "ALTER TABLE user_daily_usage ADD COLUMN cost_inr REAL NOT NULL DEFAULT 0.0"
+                    )
                 conn.commit()
             finally:
                 if self._shared_sqlite_conn is None:
@@ -307,7 +354,11 @@ class CRMDatabase:
         """Create or update a CRM client and optionally seed its INR quota & monthly budget."""
         now_iso = _iso_utc(_utc_now())
         fw_json = json.dumps(forbidden_words or [], ensure_ascii=False)
-        budget_val = float(monthly_budget_inr if monthly_budget_inr is not None else (initial_balance_inr or 0.0))
+        budget_val = float(
+            monthly_budget_inr
+            if monthly_budget_inr is not None
+            else (initial_balance_inr or 0.0)
+        )
 
         if self.is_postgres:
             with self._get_pg_conn() as conn:
@@ -324,7 +375,14 @@ class CRMDatabase:
                             forbidden_words = EXCLUDED.forbidden_words,
                             updated_at = NOW()
                         """,
-                        (client_id, client_name, target_audience, industry, brand_tone, fw_json),
+                        (
+                            client_id,
+                            client_name,
+                            target_audience,
+                            industry,
+                            brand_tone,
+                            fw_json,
+                        ),
                     )
                     if initial_balance_inr is not None:
                         cur.execute(
@@ -353,7 +411,16 @@ class CRMDatabase:
                             forbidden_words = excluded.forbidden_words,
                             updated_at = excluded.updated_at
                         """,
-                        (client_id, client_name, target_audience, industry, brand_tone, fw_json, now_iso, now_iso),
+                        (
+                            client_id,
+                            client_name,
+                            target_audience,
+                            industry,
+                            brand_tone,
+                            fw_json,
+                            now_iso,
+                            now_iso,
+                        ),
                     )
                     if initial_balance_inr is not None:
                         conn.execute(
@@ -361,7 +428,12 @@ class CRMDatabase:
                             INSERT OR IGNORE INTO client_quotas (client_id, balance_inr, reserved_inr, monthly_budget_inr, updated_at)
                             VALUES (?, ?, 0.0, ?, ?)
                             """,
-                            (client_id, float(initial_balance_inr), budget_val, now_iso),
+                            (
+                                client_id,
+                                float(initial_balance_inr),
+                                budget_val,
+                                now_iso,
+                            ),
                         )
                     conn.commit()
                 except Exception:
@@ -431,7 +503,9 @@ class CRMDatabase:
             forbidden_words=fw,
         )
 
-    def _release_expired_sqlite(self, conn: sqlite3.Connection, client_id: str, now: datetime) -> None:
+    def _release_expired_sqlite(
+        self, conn: sqlite3.Connection, client_id: str, now: datetime
+    ) -> None:
         now_iso = _iso_utc(now)
         expired_rows = conn.execute(
             """
@@ -490,8 +564,15 @@ class CRMDatabase:
         daily_usage: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         available = round(bal - res, 4)
-        budget = round(monthly_budget if monthly_budget > 0 else (bal if bal > 0 else DEFAULT_CLIENT_MONTHLY_BUDGET_INR), 4)
-        used_pct = round(((budget - available) / budget) * 100.0, 2) if budget > 0 else 0.0
+        budget = round(
+            monthly_budget
+            if monthly_budget > 0
+            else (bal if bal > 0 else DEFAULT_CLIENT_MONTHLY_BUDGET_INR),
+            4,
+        )
+        used_pct = (
+            round(((budget - available) / budget) * 100.0, 2) if budget > 0 else 0.0
+        )
         low_warning = budget > 0 and available <= (LOW_BALANCE_WARNING_RATIO * budget)
         status_dict: Dict[str, Any] = {
             "balance_inr": round(bal, 4),
@@ -515,14 +596,20 @@ class CRMDatabase:
             status_dict["bonus_runs_granted"] = bonus
             status_dict["daily_tokens_used"] = int(daily_usage.get("tokens_used", 0))
             status_dict["daily_tokens_limit"] = DAILY_USER_TOKEN_LIMIT + (bonus * 3000)
-            status_dict["daily_spend_inr"] = round(float(daily_usage.get("cost_inr", 0.0)), 4)
-            status_dict["daily_spend_limit_inr"] = round(DAILY_USER_SPEND_LIMIT_INR + (bonus * 0.50), 4)
+            status_dict["daily_spend_inr"] = round(
+                float(daily_usage.get("cost_inr", 0.0)), 4
+            )
+            status_dict["daily_spend_limit_inr"] = round(
+                DAILY_USER_SPEND_LIMIT_INR + (bonus * 0.50), 4
+            )
         elif daily_runs_used is not None:
             status_dict["daily_runs_used"] = daily_runs_used
             status_dict["daily_runs_limit"] = DAILY_USER_RUN_LIMIT
         return status_dict
 
-    def get_user_daily_usage(self, user_id: str, usage_date: Optional[str] = None) -> Dict[str, Any]:
+    def get_user_daily_usage(
+        self, user_id: str, usage_date: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Return runs, bonus_runs_granted, token counts, and INR spend today (IST) for a teammate."""
         date_str = usage_date or _ist_date_str()
         empty = {
@@ -585,9 +672,13 @@ class CRMDatabase:
             "cost_inr": float(row["cost_inr"]),
         }
 
-    def get_user_daily_runs(self, user_id: str, usage_date: Optional[str] = None) -> int:
+    def get_user_daily_runs(
+        self, user_id: str, usage_date: Optional[str] = None
+    ) -> int:
         """Return number of ScriptFalcon runs used today (IST) by a teammate."""
-        return int(self.get_user_daily_usage(user_id, usage_date=usage_date)["run_count"])
+        return int(
+            self.get_user_daily_usage(user_id, usage_date=usage_date)["run_count"]
+        )
 
     def grant_bonus_runs(
         self,
@@ -639,7 +730,9 @@ class CRMDatabase:
                         conn.close()
         return self.get_user_daily_usage(user_id, usage_date=date_str)
 
-    def get_quota_status(self, client_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_quota_status(
+        self, client_id: str, user_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Return balance, reserved, available INR, 80% low-balance warning, and optional user daily stats."""
         now = _utc_now()
         today = _ist_date_str(now)
@@ -654,7 +747,9 @@ class CRMDatabase:
                     )
                     row = cur.fetchone()
                     if not row:
-                        raise ClientNotFoundError(f"Quota record not found for client_id='{client_id}'")
+                        raise ClientNotFoundError(
+                            f"Quota record not found for client_id='{client_id}'"
+                        )
                     self._release_expired_pg(cur, client_id)
                     cur.execute(
                         "SELECT balance_inr, reserved_inr, monthly_budget_inr FROM client_quotas WHERE client_id = %s",
@@ -679,7 +774,9 @@ class CRMDatabase:
                             "cost_inr": float(u_row[5]) if u_row else 0.0,
                         }
                 conn.commit()
-            return self._format_quota_status(float(row[0]), float(row[1]), float(row[2]), daily_usage=daily_usage)
+            return self._format_quota_status(
+                float(row[0]), float(row[1]), float(row[2]), daily_usage=daily_usage
+            )
 
         with self._lock:
             conn = self._get_sqlite_conn()
@@ -690,7 +787,9 @@ class CRMDatabase:
                     (client_id,),
                 ).fetchone()
                 if not row:
-                    raise ClientNotFoundError(f"Quota record not found for client_id='{client_id}'")
+                    raise ClientNotFoundError(
+                        f"Quota record not found for client_id='{client_id}'"
+                    )
                 self._release_expired_sqlite(conn, client_id, now)
                 row = conn.execute(
                     "SELECT balance_inr, reserved_inr, monthly_budget_inr FROM client_quotas WHERE client_id = ?",
@@ -706,7 +805,9 @@ class CRMDatabase:
                     ).fetchone()
                     daily_usage = {
                         "run_count": int(u_row["run_count"]) if u_row else 0,
-                        "bonus_runs_granted": int(u_row["bonus_runs_granted"]) if u_row else 0,
+                        "bonus_runs_granted": int(u_row["bonus_runs_granted"])
+                        if u_row
+                        else 0,
                         "input_tokens": int(u_row["input_tokens"]) if u_row else 0,
                         "output_tokens": int(u_row["output_tokens"]) if u_row else 0,
                         "tokens_used": int(u_row["tokens_used"]) if u_row else 0,
@@ -726,7 +827,9 @@ class CRMDatabase:
                 if self._shared_sqlite_conn is None:
                     conn.close()
 
-    def credit_quota(self, client_id: str, amount_inr: float, update_monthly_budget: bool = False) -> Dict[str, Any]:
+    def credit_quota(
+        self, client_id: str, amount_inr: float, update_monthly_budget: bool = False
+    ) -> Dict[str, Any]:
         """Add INR quota balance to a client."""
         if amount_inr <= 0:
             raise ValueError("Credit amount must be positive.")
@@ -821,7 +924,9 @@ class CRMDatabase:
                 with conn.cursor() as cur:
                     # 1. Duplicate submit lock check
                     if dedup_key:
-                        cur.execute("DELETE FROM request_dedup_locks WHERE expires_at <= NOW()")
+                        cur.execute(
+                            "DELETE FROM request_dedup_locks WHERE expires_at <= NOW()"
+                        )
                         cur.execute(
                             "SELECT dedup_key FROM request_dedup_locks WHERE dedup_key = %s AND expires_at > NOW()",
                             (dedup_key,),
@@ -865,7 +970,9 @@ class CRMDatabase:
                     )
                     row = cur.fetchone()
                     if not row:
-                        raise ClientNotFoundError(f"Quota record not found for client_id='{client_id}'")
+                        raise ClientNotFoundError(
+                            f"Quota record not found for client_id='{client_id}'"
+                        )
                     self._release_expired_pg(cur, client_id)
                     cur.execute(
                         "SELECT balance_inr, reserved_inr FROM client_quotas WHERE client_id = %s",
@@ -888,7 +995,16 @@ class CRMDatabase:
                             (reservation_id, client_id, user_id, operation, reserved_amount_inr, status, dedup_key, usage_date, expires_at, created_at)
                         VALUES (%s, %s, %s, %s, %s, 'RESERVED', %s, %s, %s, NOW())
                         """,
-                        (reservation_id, client_id, user_id, operation, float(amount_inr), dedup_key, today, expires_at),
+                        (
+                            reservation_id,
+                            client_id,
+                            user_id,
+                            operation,
+                            float(amount_inr),
+                            dedup_key,
+                            today,
+                            expires_at,
+                        ),
                     )
                     cur.execute(
                         """
@@ -921,7 +1037,10 @@ class CRMDatabase:
                 conn.execute("BEGIN IMMEDIATE")
 
                 if dedup_key:
-                    conn.execute("DELETE FROM request_dedup_locks WHERE expires_at <= ?", (now_iso,))
+                    conn.execute(
+                        "DELETE FROM request_dedup_locks WHERE expires_at <= ?",
+                        (now_iso,),
+                    )
                     dup_row = conn.execute(
                         "SELECT dedup_key FROM request_dedup_locks WHERE dedup_key = ? AND expires_at > ?",
                         (dedup_key, now_iso),
@@ -960,7 +1079,9 @@ class CRMDatabase:
                     (client_id,),
                 ).fetchone()
                 if not row:
-                    raise ClientNotFoundError(f"Quota record not found for client_id='{client_id}'")
+                    raise ClientNotFoundError(
+                        f"Quota record not found for client_id='{client_id}'"
+                    )
                 self._release_expired_sqlite(conn, client_id, now)
                 row = conn.execute(
                     "SELECT balance_inr, reserved_inr FROM client_quotas WHERE client_id = ?",
@@ -983,7 +1104,17 @@ class CRMDatabase:
                         (reservation_id, client_id, user_id, operation, reserved_amount_inr, status, dedup_key, usage_date, expires_at, created_at)
                     VALUES (?, ?, ?, ?, ?, 'RESERVED', ?, ?, ?, ?)
                     """,
-                    (reservation_id, client_id, user_id, operation, float(amount_inr), dedup_key, today, exp_iso, now_iso),
+                    (
+                        reservation_id,
+                        client_id,
+                        user_id,
+                        operation,
+                        float(amount_inr),
+                        dedup_key,
+                        today,
+                        exp_iso,
+                        now_iso,
+                    ),
                 )
                 conn.execute(
                     """
@@ -1026,7 +1157,9 @@ class CRMDatabase:
         actual = max(0.0, round(float(actual_cost_inr), 4))
         in_tok = max(0, int(input_tokens or 0))
         out_tok = max(0, int(output_tokens or 0))
-        tot_tok = max(0, int(tokens_used if tokens_used is not None else (in_tok + out_tok)))
+        tot_tok = max(
+            0, int(tokens_used if tokens_used is not None else (in_tok + out_tok))
+        )
         now_iso = _iso_utc(_utc_now())
         run_id = f"run_{uuid.uuid4().hex[:16]}"
 
@@ -1044,7 +1177,12 @@ class CRMDatabase:
                     if not row:
                         raise QuotaError(f"Reservation '{reservation_id}' not found.")
                     client_id, user_id, operation, reserved_amt, status, usage_date = (
-                        row[0], row[1], row[2], float(row[3]), row[4], row[5] or _ist_date_str()
+                        row[0],
+                        row[1],
+                        row[2],
+                        float(row[3]),
+                        row[4],
+                        row[5] or _ist_date_str(),
                     )
                     if status != "RESERVED":
                         return self.get_quota_status(client_id, user_id=user_id)
@@ -1092,7 +1230,19 @@ class CRMDatabase:
                             (run_id, reservation_id, deliverable_id, client_id, user_id, operation, input_tokens, output_tokens, tokens_used, cost_inr, usage_date, created_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                         """,
-                        (run_id, reservation_id, deliverable_id, client_id, user_id, operation, in_tok, out_tok, tot_tok, actual, usage_date),
+                        (
+                            run_id,
+                            reservation_id,
+                            deliverable_id,
+                            client_id,
+                            user_id,
+                            operation,
+                            in_tok,
+                            out_tok,
+                            tot_tok,
+                            actual,
+                            usage_date,
+                        ),
                     )
                 conn.commit()
             return self.get_quota_status(client_id, user_id=user_id)
@@ -1159,7 +1309,20 @@ class CRMDatabase:
                         (run_id, reservation_id, deliverable_id, client_id, user_id, operation, input_tokens, output_tokens, tokens_used, cost_inr, usage_date, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (run_id, reservation_id, deliverable_id, client_id, user_id, operation, in_tok, out_tok, tot_tok, actual, usage_date, now_iso),
+                    (
+                        run_id,
+                        reservation_id,
+                        deliverable_id,
+                        client_id,
+                        user_id,
+                        operation,
+                        in_tok,
+                        out_tok,
+                        tot_tok,
+                        actual,
+                        usage_date,
+                        now_iso,
+                    ),
                 )
                 conn.commit()
             except Exception:
@@ -1305,7 +1468,10 @@ class CRMDatabase:
                             (user_id, usage_date),
                         )
                     if dedup_key:
-                        cur.execute("DELETE FROM request_dedup_locks WHERE dedup_key = %s", (dedup_key,))
+                        cur.execute(
+                            "DELETE FROM request_dedup_locks WHERE dedup_key = %s",
+                            (dedup_key,),
+                        )
                 conn.commit()
             return True
 
@@ -1355,7 +1521,10 @@ class CRMDatabase:
                         (now_iso, user_id, usage_date),
                     )
                 if dedup_key:
-                    conn.execute("DELETE FROM request_dedup_locks WHERE dedup_key = ?", (dedup_key,))
+                    conn.execute(
+                        "DELETE FROM request_dedup_locks WHERE dedup_key = ?",
+                        (dedup_key,),
+                    )
                 conn.commit()
                 return True
             except Exception:
@@ -1578,7 +1747,10 @@ class CRMDatabase:
             with self._lock:
                 conn = self._get_sqlite_conn()
                 try:
-                    rows = [tuple(r) for r in conn.execute(query.format(ph="?"), (limit,)).fetchall()]
+                    rows = [
+                        tuple(r)
+                        for r in conn.execute(query.format(ph="?"), (limit,)).fetchall()
+                    ]
                 finally:
                     if self._shared_sqlite_conn is None:
                         conn.close()
@@ -1594,7 +1766,9 @@ class CRMDatabase:
             for r in rows
         ]
 
-    def get_standalone_deliverable(self, deliverable_id: str) -> Optional[FullDeliverable]:
+    def get_standalone_deliverable(
+        self, deliverable_id: str
+    ) -> Optional[FullDeliverable]:
         """Load a standalone deliverable by ID, or None if missing."""
         query = "SELECT deliverable_json FROM standalone_deliverables WHERE deliverable_id = {ph}"
         if self.is_postgres:
@@ -1606,7 +1780,9 @@ class CRMDatabase:
             with self._lock:
                 conn = self._get_sqlite_conn()
                 try:
-                    row = conn.execute(query.format(ph="?"), (deliverable_id,)).fetchone()
+                    row = conn.execute(
+                        query.format(ph="?"), (deliverable_id,)
+                    ).fetchone()
                 finally:
                     if self._shared_sqlite_conn is None:
                         conn.close()
@@ -1615,7 +1791,9 @@ class CRMDatabase:
         raw = row[0] if isinstance(row[0], str) else json.dumps(row[0])
         return FullDeliverable.model_validate_json(raw)
 
-    def get_client_history(self, client_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_client_history(
+        self, client_id: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
         """List recent generated deliverables for a CRM client."""
         if self.is_postgres:
             with self._get_pg_conn() as conn:

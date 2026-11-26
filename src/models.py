@@ -1,7 +1,8 @@
 import ipaddress
 import re
 from pathlib import Path
-from typing import List, Optional, Literal, Dict, Any
+from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -12,26 +13,44 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
 from src.config import (
-    DEFAULT_PLATFORM,
     DEFAULT_DURATION,
-    DEFAULT_TONE,
-    DEFAULT_OBJECTIVE,
     DEFAULT_MODE,
+    DEFAULT_OBJECTIVE,
+    DEFAULT_PLATFORM,
+    DEFAULT_TONE,
     WORD_COUNT_LIMITS,
 )
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-_SCRIPT_TAG_BLOCK_RE = re.compile(r"<\s*(?:script|style)\b[^>]*>.*?<\s*/\s*(?:script|style)\s*>", re.IGNORECASE | re.DOTALL)
+_SCRIPT_TAG_BLOCK_RE = re.compile(
+    r"<\s*(?:script|style)\b[^>]*>.*?<\s*/\s*(?:script|style)\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _PROMPT_INJECTION_PATTERNS = (
-    re.compile(r"\bignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?\b", re.IGNORECASE),
-    re.compile(r"\bdisregard\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?\b", re.IGNORECASE),
-    re.compile(r"\bforget\s+(?:all\s+)?(?:previous|your)\s+instructions?\b", re.IGNORECASE),
+    re.compile(
+        r"\bignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bdisregard\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bforget\s+(?:all\s+)?(?:previous|your)\s+instructions?\b", re.IGNORECASE
+    ),
     re.compile(r"\bsystem\s+prompt\b", re.IGNORECASE),
     re.compile(r"\breveal\s+(?:your|the)\s+(?:system\s+)?prompt\b", re.IGNORECASE),
-    re.compile(r"\boverride\s+(?:system|safety|all)\s+(?:rules|instructions|prompts?)\b", re.IGNORECASE),
-    re.compile(r"(?:<\|im_start\|>|<\|system\|>|\[\s*SYSTEM\s*\]|###\s*instruction)", re.IGNORECASE),
+    re.compile(
+        r"\boverride\s+(?:system|safety|all)\s+(?:rules|instructions|prompts?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:<\|im_start\|>|<\|system\|>|\[\s*SYSTEM\s*\]|###\s*instruction)",
+        re.IGNORECASE,
+    ),
 )
 _SLUG_OR_UUID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,99}$")
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
@@ -45,7 +64,9 @@ _LANGUAGE_TO_TONE_MAP = {
 }
 
 
-def sanitize_user_text(value: Any, field_name: str, min_length: int, max_length: int) -> str:
+def sanitize_user_text(
+    value: Any, field_name: str, min_length: int, max_length: int
+) -> str:
     """Strip HTML/script tags, trim, and reject control chars & prompt-injection attempts."""
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string.")
@@ -57,10 +78,14 @@ def sanitize_user_text(value: Any, field_name: str, min_length: int, max_length:
 
     for pattern in _PROMPT_INJECTION_PATTERNS:
         if pattern.search(cleaned):
-            raise ValueError(f"{field_name} rejected: disallowed prompt-injection pattern detected.")
+            raise ValueError(
+                f"{field_name} rejected: disallowed prompt-injection pattern detected."
+            )
 
     if len(cleaned) < min_length:
-        raise ValueError(f"{field_name} must be at least {min_length} characters after sanitization.")
+        raise ValueError(
+            f"{field_name} must be at least {min_length} characters after sanitization."
+        )
     if len(cleaned) > max_length:
         raise ValueError(f"{field_name} must not exceed {max_length} characters.")
     return cleaned
@@ -100,7 +125,9 @@ def validate_safe_reference_url(value: Any) -> Optional[HttpUrl]:
             or ip_obj.is_multicast
             or ip_obj.is_unspecified
         ):
-            raise ValueError(f"SSRF protection blocked private/internal IP range: '{host}'.")
+            raise ValueError(
+                f"SSRF protection blocked private/internal IP range: '{host}'."
+            )
     except ValueError as exc:
         if "SSRF protection" in str(exc):
             raise
@@ -120,7 +147,9 @@ def validate_client_identifier(value: Optional[str]) -> str:
         raise ValueError("client_id is required when mode is 'crm'.")
     if _UUID_RE.match(clean) or _SLUG_OR_UUID_RE.match(clean):
         return clean
-    raise ValueError("client_id must be a valid UUID or alphanumeric slug (e.g. 'vg_demo_clinic').")
+    raise ValueError(
+        "client_id must be a valid UUID or alphanumeric slug (e.g. 'vg_demo_clinic')."
+    )
 
 
 class BrandDNA(BaseModel):
@@ -137,14 +166,26 @@ class BrandDNA(BaseModel):
 class ScriptInput(BaseModel):
     """Validated input payload for script generation."""
 
-    topic: str = Field(..., min_length=3, max_length=300, description="Primary topic for the reel")
-    audience: Optional[str] = Field(default=None, max_length=150, description="Target demographic")
-    niche: Optional[str] = Field(default=None, max_length=100, description="Industry domain")
+    topic: str = Field(
+        ..., min_length=3, max_length=300, description="Primary topic for the reel"
+    )
+    audience: Optional[str] = Field(
+        default=None, max_length=150, description="Target demographic"
+    )
+    niche: Optional[str] = Field(
+        default=None, max_length=100, description="Industry domain"
+    )
     platform: str = Field(default=DEFAULT_PLATFORM, max_length=50)
-    duration: Literal[30, 45, 60] = Field(default=30, description="Target video duration in seconds")
-    tone: Literal["Tanglish", "conversational spoken Tamil", "Tamil", "English"] = Field(default="Tanglish")
+    duration: Literal[30, 45, 60] = Field(
+        default=30, description="Target video duration in seconds"
+    )
+    tone: Literal["Tanglish", "conversational spoken Tamil", "Tamil", "English"] = (
+        Field(default="Tanglish")
+    )
     objective: str = Field(default=DEFAULT_OBJECTIVE, max_length=120)
-    mode: Literal["full_script", "regenerate_hook", "regenerate_cta"] = Field(default="full_script")
+    mode: Literal["full_script", "regenerate_hook", "regenerate_cta"] = Field(
+        default="full_script"
+    )
     assumed_defaults: List[str] = Field(default_factory=list)
     client_id: Optional[str] = Field(default=None, max_length=100)
     brand_dna: Optional[BrandDNA] = None
@@ -202,7 +243,11 @@ class ScriptInput(BaseModel):
         if not duration:
             assumed.append(f"duration = {DEFAULT_DURATION}s")
 
-        final_tone = tone if tone in ("Tanglish", "conversational spoken Tamil", "Tamil", "English") else DEFAULT_TONE
+        final_tone = (
+            tone
+            if tone in ("Tanglish", "conversational spoken Tamil", "Tamil", "English")
+            else DEFAULT_TONE
+        )
         if not tone:
             assumed.append(f"tone = {DEFAULT_TONE}")
 
@@ -210,11 +255,27 @@ class ScriptInput(BaseModel):
         if not objective:
             assumed.append(f"objective = {DEFAULT_OBJECTIVE}")
 
-        final_mode = mode if mode in ("full_script", "regenerate_hook", "regenerate_cta") else DEFAULT_MODE
+        final_mode = (
+            mode
+            if mode in ("full_script", "regenerate_hook", "regenerate_cta")
+            else DEFAULT_MODE
+        )
 
-        default_audience = "General digital audience" if final_tone == "English" else "General Tamil content audience"
-        resolved_audience = audience or (brand_dna.target_audience if brand_dna else None) or default_audience
-        resolved_niche = niche or (brand_dna.industry if brand_dna else None) or "Business / Digital / Career"
+        default_audience = (
+            "General digital audience"
+            if final_tone == "English"
+            else "General Tamil content audience"
+        )
+        resolved_audience = (
+            audience
+            or (brand_dna.target_audience if brand_dna else None)
+            or default_audience
+        )
+        resolved_niche = (
+            niche
+            or (brand_dna.industry if brand_dna else None)
+            or "Business / Digital / Career"
+        )
 
         return cls(
             topic=topic,
@@ -228,7 +289,9 @@ class ScriptInput(BaseModel):
             assumed_defaults=assumed,
             client_id=client_id or (brand_dna.client_id if brand_dna else None),
             brand_dna=brand_dna,
-            reference_url=reference_url.strip() if reference_url and reference_url.strip() else None,
+            reference_url=reference_url.strip()
+            if reference_url and reference_url.strip()
+            else None,
         )
 
 
@@ -245,7 +308,7 @@ class ResearchResult(BaseModel):
     topic: str
     queries_run: List[str] = Field(default_factory=list)
     key_findings: List[str] = Field(default_factory=list)  # 3-5 facts/mistakes
-    pain_points: List[str] = Field(default_factory=list)   # 3 audience pain points
+    pain_points: List[str] = Field(default_factory=list)  # 3 audience pain points
     chosen_angle: str = ""
     angle_reason: str = ""
     sources: List[SourceItem] = Field(default_factory=list)
@@ -300,7 +363,11 @@ class ScriptDraft(BaseModel):
         # Strip inline vocal modulation cues such as [Pause], [Stress], [Direct eye contact]
         spoken_only = re.sub(r"\[[^\]]+\]", " ", raw_text)
         # Keep Tamil Unicode characters + combining marks intact within words
-        tokens = re.findall(r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*", spoken_only, flags=re.UNICODE)
+        tokens = re.findall(
+            r"[\w\u0B80-\u0BFF]+(?:['\-][\w\u0B80-\u0BFF]+)*",
+            spoken_only,
+            flags=re.UNICODE,
+        )
         return len(tokens)
 
     def calculate_word_count(self) -> int:
@@ -335,7 +402,17 @@ class CheckItem(BaseModel):
         raw = str(value or "").strip().upper()
         if raw in {"PASS", "PASSED", "OK", "TRUE", "SUCCESS"}:
             return "PASS"
-        if raw in {"FLAG", "FLAGGED", "FAIL", "FAILED", "WARN", "WARNING", "ERROR", "ISSUE", "FALSE"}:
+        if raw in {
+            "FLAG",
+            "FLAGGED",
+            "FAIL",
+            "FAILED",
+            "WARN",
+            "WARNING",
+            "ERROR",
+            "ISSUE",
+            "FALSE",
+        }:
             return "FLAG"
         return "FLAG"
 
@@ -446,7 +523,9 @@ class FullDeliverable(BaseModel):
             on_screen_texts=self.script.on_screen_texts,
             vocal_modulation_cues=self.script.extract_modulation_cues(),
             forbidden_words_checked=(
-                self.input_data.brand_dna.forbidden_words if self.input_data.brand_dna else []
+                self.input_data.brand_dna.forbidden_words
+                if self.input_data.brand_dna
+                else []
             ),
             audit_passed=self.quality_check.overall_passed,
         )
@@ -468,7 +547,9 @@ class FullDeliverable(BaseModel):
         if self.input_data.brand_dna and self.input_data.brand_dna.client_name:
             lines.append(f"- **Client Brand:** {self.input_data.brand_dna.client_name}")
         if self.input_data.assumed_defaults:
-            lines.append(f"- **Assumed Defaults:** {', '.join(self.input_data.assumed_defaults)}")
+            lines.append(
+                f"- **Assumed Defaults:** {', '.join(self.input_data.assumed_defaults)}"
+            )
         lines.append("")
 
         lines.append("## 2. Research Summary")
@@ -481,14 +562,16 @@ class FullDeliverable(BaseModel):
         lines.append("## 3. Hook Options")
         for i, hook in enumerate(self.script.hooks, 1):
             badge = " **[RECOMMENDED]**" if hook.is_recommended else ""
-            lines.append(f"{i}. *({hook.type})* \"{hook.text}\"{badge}")
+            lines.append(f'{i}. *({hook.type})* "{hook.text}"{badge}')
             if hook.reason:
                 lines.append(f"   - *Reason:* {hook.reason}")
         lines.append("")
 
         limits = WORD_COUNT_LIMITS.get(self.input_data.duration, {"min": 60, "max": 75})
         lines.append("## 4. Full Tamil Script")
-        lines.append(f"*(Target: {limits['min']}-{limits['max']} words | Actual: **{self.script.word_count} words**)*\n")
+        lines.append(
+            f"*(Target: {limits['min']}-{limits['max']} words | Actual: **{self.script.word_count} words**)*\n"
+        )
         lines.append(f"**[Hook]**\n{self.script.hook}\n")
         lines.append(f"**[Context]**\n{self.script.context}\n")
         lines.append("**[Body]**")
@@ -501,7 +584,7 @@ class FullDeliverable(BaseModel):
             lines.append("### Alternative CTA Options:")
             for idx, c_opt in enumerate(self.script.cta_options, 1):
                 c_badge = " **[RECOMMENDED]**" if c_opt.is_recommended else ""
-                lines.append(f"{idx}. \"{c_opt.text}\"{c_badge}")
+                lines.append(f'{idx}. "{c_opt.text}"{c_badge}')
                 if c_opt.reason:
                     lines.append(f"   - *Reason:* {c_opt.reason}")
             lines.append("")
@@ -518,7 +601,9 @@ class FullDeliverable(BaseModel):
         if self.research.sources:
             for s in self.research.sources:
                 status = "" if s.is_verified else " *(UNVERIFIED)*"
-                lines.append(f"- [{s.title or s.url}]({s.url}){status} — *Supports:* {s.claim_supported}")
+                lines.append(
+                    f"- [{s.title or s.url}]({s.url}){status} — *Supports:* {s.claim_supported}"
+                )
         else:
             lines.append("- *No external sources logged.*")
 
@@ -531,11 +616,19 @@ class FullDeliverable(BaseModel):
         # Quality Check Result (7 Strict Criteria)
         lines.append("## Quality Check Result")
         qc = self.quality_check
-        lines.append(f"1. **Unsupported Claims:** [{qc.unsupported_claims.status}] {qc.unsupported_claims.notes}")
-        lines.append(f"2. **Repetition:** [{qc.repetition.status}] {qc.repetition.notes}")
+        lines.append(
+            f"1. **Unsupported Claims:** [{qc.unsupported_claims.status}] {qc.unsupported_claims.notes}"
+        )
+        lines.append(
+            f"2. **Repetition:** [{qc.repetition.status}] {qc.repetition.notes}"
+        )
         lines.append(f"3. **Weak CTA:** [{qc.weak_cta.status}] {qc.weak_cta.notes}")
-        lines.append(f"4. **Unnatural Tamil:** [{qc.unnatural_tamil.status}] {qc.unnatural_tamil.notes}")
-        lines.append(f"5. **Duration Fit:** [{qc.duration_fit.status}] {qc.duration_fit.notes}")
+        lines.append(
+            f"4. **Unnatural Tamil:** [{qc.unnatural_tamil.status}] {qc.unnatural_tamil.notes}"
+        )
+        lines.append(
+            f"5. **Duration Fit:** [{qc.duration_fit.status}] {qc.duration_fit.notes}"
+        )
         lines.append(
             f"6. **Respectful Single-Narrator & Anti-AI Cliché:** "
             f"[{qc.respectful_and_cliche_free.status}] {qc.respectful_and_cliche_free.notes}"
@@ -576,9 +669,13 @@ class GenerateScriptRequest(BaseModel):
 
     topic: str
     conversion_objective: str
-    platform: Literal["Instagram Reels", "YouTube Shorts", "LinkedIn Video"] = "Instagram Reels"
+    platform: Literal["Instagram Reels", "YouTube Shorts", "LinkedIn Video"] = (
+        "Instagram Reels"
+    )
     duration_seconds: Literal[30, 45, 60] = 30
-    language: Literal["Tanglish", "Conversational Spoken Tamil", "Tamil", "English"] = "Tanglish"
+    language: Literal["Tanglish", "Conversational Spoken Tamil", "Tamil", "English"] = (
+        "Tanglish"
+    )
     reference_url: Optional[HttpUrl] = None
     audience: Optional[str] = Field(default=None, max_length=150)
     niche: Optional[str] = Field(default=None, max_length=100)
@@ -593,7 +690,9 @@ class GenerateScriptRequest(BaseModel):
     @field_validator("conversion_objective")
     @classmethod
     def _validate_objective(cls, value: str) -> str:
-        return sanitize_user_text(value, "conversion_objective", min_length=3, max_length=120)
+        return sanitize_user_text(
+            value, "conversion_objective", min_length=3, max_length=120
+        )
 
     @field_validator("audience")
     @classmethod
@@ -656,7 +755,9 @@ class RegenerateSectionRequest(BaseModel):
     def _validate_regen_objective(cls, value: Optional[str]) -> Optional[str]:
         if value is None or not value.strip():
             return None
-        return sanitize_user_text(value, "conversion_objective", min_length=3, max_length=120)
+        return sanitize_user_text(
+            value, "conversion_objective", min_length=3, max_length=120
+        )
 
     @model_validator(mode="after")
     def _validate_regen_targets(self) -> "RegenerateSectionRequest":
@@ -665,5 +766,7 @@ class RegenerateSectionRequest(BaseModel):
             if not self.deliverable_id or not self.deliverable_id.strip():
                 raise ValueError("deliverable_id is required when mode is 'crm'.")
         elif self.deliverable is None and not self.deliverable_id:
-            raise ValueError("Provide either 'deliverable' or 'deliverable_id' in standalone mode.")
+            raise ValueError(
+                "Provide either 'deliverable' or 'deliverable_id' in standalone mode."
+            )
         return self
