@@ -1,0 +1,30 @@
+# Secrets and local data: never bake into images
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.sqlite3
+
+# Local tooling / caches
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.aislop
+.vscode
+.idea
+*.log
+
+# Frontend build artifacts and deps (rebuilt inside the image)
+frontend-react/node_modules
+frontend-react/dist
+php/assets
+
+# Not needed at runtime
+tests
+docs
+README.md

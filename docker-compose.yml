@@ -1,0 +1,55 @@
+# Full local/VPS stack: Postgres + FastAPI + PHP gateway (React UI)
+#   docker compose up -d --build
+#   UI (employee login): http://localhost:8080
+#   API + basic UI:      http://localhost:8000   (docs at /docs)
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: scriptfalcon
+      POSTGRES_USER: scriptfalcon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scriptfalcon_local}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scriptfalcon -d scriptfalcon"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    image: scriptfalcon-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://scriptfalcon:${POSTGRES_PASSWORD:-scriptfalcon_local}@db:5432/scriptfalcon
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: php/Dockerfile
+    image: scriptfalcon-web
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SCRIPTFALCON_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:

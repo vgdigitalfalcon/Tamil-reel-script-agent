@@ -4,7 +4,6 @@ from src.utils import setup_utf8_console
 
 setup_utf8_console()
 
-from pathlib import Path
 from src.models import ScriptInput
 from src.pipeline import TamilReelScriptPipeline
 from src.config import DELIVERABLES_DIR

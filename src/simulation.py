@@ -1,11 +1,123 @@
 """Decoupled simulation generator for offline testing and mock execution.
 
-Keeps core agent classes clean, simple, and free of hardcoded mock copy.
+Produces humanized, single-narrator, modulation-cued spoken Tamil and Tanglish
+scripts that strictly satisfy all 7 ScriptFalcon quality guardrails.
 """
 
+import re
 from typing import Dict, Any, List
 from src.models import ScriptInput, ResearchResult, ScriptDraft
-from src.config import WORD_COUNT_LIMITS
+from src.config import get_word_count_limits
+
+
+_OBJECTIVE_NOUN_MAP: Dict[str, str] = {
+    "agency": "ஏஜென்சிக்கு",
+    "agencies": "ஏஜென்சிக்கு",
+    "website": "வெப்சைட்டுக்கு",
+    "websites": "வெப்சைட்டுக்கு",
+    "business": "பிசினஸுக்கு",
+    "leads": "லீட்ஸ்",
+    "lead": "லீட்",
+    "clients": "கிளையண்ட்ஸ்",
+    "client": "கிளையண்ட்",
+    "customers": "கஸ்டமர்ஸ்",
+    "customer": "கஸ்டமர்",
+    "sales": "சேல்ஸ்",
+    "orders": "ஆர்டர்ஸ்",
+    "order": "ஆர்டர்",
+    "calls": "கால்ஸ்",
+    "call": "கால்",
+    "consultation": "கன்சல்டேஷன்",
+    "audit": "ஆடிட்",
+    "demo": "டெமோ",
+    "whatsapp": "வாட்ஸ்அப்",
+    "dental": "டென்டல்",
+    "checkup": "செக்கப்",
+    "appointment": "அப்பாயிண்ட்மென்ட்",
+    "appointments": "அப்பாயிண்ட்மென்ட்",
+    "seo": "எஸ்இஓ",
+    "traffic": "டிராஃபிக்",
+    "views": "வியூஸ்",
+    "reach": "ரீச்",
+    "bookings": "புக்கிங்",
+    "booking": "புக்கிங்",
+    "inquiries": "என்கொயரீஸ்",
+    "enquiries": "என்கொயரீஸ்",
+    "requests": "ரிக்வெஸ்ட்",
+    "free": "ஃப்ரீ",
+    "local": "லோக்கல்",
+    "shop": "கடைக்கு",
+    "shops": "கடைகளுக்கு",
+    "clinic": "கிளினிக்குக்கு",
+    "visa": "விசா",
+    "germany": "ஜெர்மனி",
+}
+
+
+def adapt_objective_to_conversational_tamil(objective: str) -> str:
+    """Naturally translate/adapt an English Conversion Objective into conversational Tamil.
+
+    Prevents pasting raw English objective phrases verbatim before Tamil CTA clauses
+    (e.g., avoids 'Get agency leads கைடு வேணும்னா' -> 'உங்க ஏஜென்சிக்கு லீட்ஸ் வர').
+    """
+    clean = (objective or "").strip()
+    if not clean:
+        return "உங்க பிசினஸுக்கு நல்ல ரிசல்ட்ஸ் வர"
+    if any("\u0B80" <= ch <= "\u0BFF" for ch in clean):
+        return clean
+
+    low = clean.lower()
+    if "agency" in low and "lead" in low:
+        return "உங்க ஏஜென்சிக்கு லீட்ஸ் வர"
+    if "clinic" in low and "call" in low:
+        return "உங்க ஃப்ரீ கிளினிக் செட்டப் கால் புக் பண்ண"
+    if "clinic" in low:
+        return "உங்க கிளினிக்கிற்கு புது கஸ்டமர்ஸ் வர"
+    if "real estate" in low or "property" in low or "site visit" in low:
+        return "உங்க பிராப்பர்ட்டி சைட் விசிட் புக் பண்ண"
+    if "whatsapp" in low and "audit" in low:
+        return "உங்க வாட்ஸ்அப் ஆடிட் ரிப்போர்ட் வாங்க"
+    if "consultation" in low:
+        return "உங்க கன்சல்டேஷன் கால் புக் பண்ண"
+    if "dental" in low or "checkup" in low:
+        return "உங்க டென்டல் செக்கப் புக் பண்ண"
+    if "demo" in low:
+        return "உங்க பிசினஸுக்கான ஃப்ரீ டெமோ பார்க்க"
+    if "website" in low and "audit" in low:
+        return "உங்க வெப்சைட் ஆடிட் ரிப்போர்ட் வாங்க"
+    if "audit" in low:
+        return "உங்க ஃப்ரீ ஆடிட் ரிப்போர்ட் வாங்க"
+    if "lead" in low or "inquir" in low or "enquir" in low:
+        return "உங்க பிசினஸுக்கு அதிக லீட்ஸ் வர"
+    if "sale" in low or "order" in low:
+        return "உங்க பிசினஸ் சேல்ஸ் அதிகரிக்க"
+    if "call" in low or "book" in low or "appointment" in low:
+        return "உங்க நேரடி கால் புக் பண்ண"
+    if "client" in low:
+        return "புது கிளையண்ட்ஸ் கிடைக்க"
+    if "view" in low or "reach" in low or "traffic" in low:
+        return "உங்க ரீச் அப்புறம் வியூஸ் அதிகரிக்க"
+
+    tokens = re.findall(r"[A-Za-z]+", low)
+    if not tokens:
+        return "உங்க பிசினஸுக்கு நல்ல ரிசல்ட்ஸ் வர"
+
+    action_verb = "வர"
+    if tokens[0] in {"book", "schedule"}:
+        action_verb = "புக் பண்ண"
+    elif tokens[0] in {"download", "claim", "request"}:
+        action_verb = "வாங்க"
+    elif tokens[0] in {"increase", "grow", "boost", "maximize"}:
+        action_verb = "அதிகரிக்க"
+
+    skip_verbs = {
+        "get", "book", "schedule", "download", "claim", "request",
+        "increase", "grow", "boost", "drive", "generate", "for", "more", "the", "a", "an",
+    }
+    mapped_parts = [_OBJECTIVE_NOUN_MAP[t] for t in tokens if t not in skip_verbs and t in _OBJECTIVE_NOUN_MAP]
+    if mapped_parts:
+        return f"உங்க {' '.join(mapped_parts)} {action_verb}"
+    return "உங்க பிசினஸுக்கு நல்ல ரிசல்ட்ஸ் வர"
 
 
 class SimulationProvider:
@@ -46,7 +158,7 @@ class SimulationProvider:
             elif "visa" in topic_lower or "germany" in topic_lower:
                 findings = [
                     "Germany's Chancenkarte requires a minimum score of 6 points based on degree and language.",
-                    "Applicants must prove €1,027/month in living expenses via an official blocked account.",
+                    "Applicants must prove EUR 1,027/month in living expenses via an official blocked account.",
                     "Opportunity card holders are permitted to work up to 20 hours per week part-time.",
                 ]
                 sources = [{
@@ -57,8 +169,8 @@ class SimulationProvider:
                 }]
             else:
                 findings = [
-                    f"Over 80% of audience members look for clear solutions within 5 seconds of discovering {inp.topic}.",
-                    "Unoptimized mobile user experiences lead to a 53% drop in conversion actions.",
+                    f"Over 80% of audience members look for clear answers within 5 seconds of discovering {inp.topic}.",
+                    "Unoptimized mobile user experiences lead to a 53% drop in customer inquiries.",
                     "Direct and specific calls-to-action increase audience response rates by up to 2.5x.",
                 ]
                 sources = [{
@@ -69,13 +181,13 @@ class SimulationProvider:
                 }]
 
         pain_points = [
-            f"Wasting time and effort on {inp.topic} without seeing real, measurable results.",
-            f"Confused by conflicting advice and complex terminology online about {inp.topic}.",
-            f"Fear of falling behind competitors who are already mastering {inp.topic}.",
+            f"Spending time and money on {inp.topic} without seeing genuine customer inquiries.",
+            f"Getting confused by mixed online advice about {inp.topic}.",
+            f"Missing simple everyday fixes while competitors quietly capture the same local audience.",
         ]
 
-        angle = f"3 critical, actionable insights every business owner must know about {inp.topic}."
-        reason = "Focuses on immediate, high-impact fixes that eliminate wasted effort."
+        angle = f"3 practical mistakes to fix right away in {inp.topic}."
+        reason = "Focuses on immediate, relatable fixes in everyday spoken terms."
 
         uncertainties = []
         if "visa" in topic_lower or "germany" in topic_lower or "legal" in topic_lower:
@@ -92,59 +204,122 @@ class SimulationProvider:
 
     @staticmethod
     def get_script_fallback(inp: ScriptInput, research: ResearchResult) -> Dict[str, Any]:
-        """Generate calibrated script JSON fallback matching duration and tone."""
-        is_tanglish = "tanglish" in inp.tone.lower()
+        """Generate calibrated, humanized, single-narrator script JSON matching duration and tone."""
+        tone_lower = inp.tone.strip().lower()
+        is_english = tone_lower == "english"
+        is_tanglish = "tanglish" in tone_lower
         topic = inp.topic.strip()
         dur = inp.duration
-        limits = WORD_COUNT_LIMITS.get(dur, {"min": 60, "max": 75, "target": 68})
 
-        if is_tanglish:
-            hook_1 = f"{topic} pathi innum ungalukku confusion irukka?"
-            hook_2 = f"90% people {topic}-la panra periya mistake enna theriyuma?"
-            hook_3 = f"{topic}-la zero results-nu feel panreengala? Idhai paarunga!"
-            ctx = f"Romba simple reason: Neraiya per basic fundamentals miss pannitu shortcuts theduraanga."
+        if is_english:
+            hook_1 = f"[Curious tone] Still wondering why {topic} is not bringing results?"
+            hook_2 = f"[Direct eye contact] Are you making this common {topic} mistake?"
+            hook_3 = f"[Stress] Fix your {topic} flow before you post again."
+            ctx = "[Pause] Here is the simple fix you can apply today."
 
             body = [
-                f"1. First rule: Proper planning and clear goal setting romba mukkiyam.",
-                f"2. Second rule: Outdated methods use pannama, modern verified techniques follow pannanum.",
-                f"3. Third rule: Regular tracking and consistent execution mattumae real results tharum.",
+                "1. [Stress] First: Name your buyer's exact problem in three seconds.",
+                "2. [Pause] Second: Keep your mobile layout clean, fast, and easy.",
+                "3. [Slow down] Third: Track weekly replies and repeat what actually works.",
             ]
             if dur >= 45:
-                body.append("4. Fourth rule: Audience needs purinjukittu quality-la compromise pannama deliver pannanum.")
+                body.append(
+                    "4. [Curious tone] Fourth: Write down every real customer question you hear, and turn that into your next short video."
+                )
+                body.append(
+                    "5. [Pause] Fifth: Build real trust before you pitch anything, because helpful creators always win steady replies naturally."
+                )
             if dur >= 60:
-                body.append("5. Fifth rule: Official guidance and verified resources use panni decisions edunga.")
+                body.append(
+                    "6. [Slow down] Sixth: Double-check official rules and verified numbers before you share advice on camera with your audience."
+                )
+                body.append(
+                    "7. [Stress] Seventh: Keep one simple weekly checklist so you stay consistent and never guess your next post."
+                )
 
-            engage = f"Neenga {topic}-la enna challenge face panreenga? Comment-la sollunga."
-            cta = f"{inp.objective.capitalize()}-ku exclusive verified guide inbox-la venumna, 'REEL' nu DM pannunga!"
-            caption = f"Stop making costly mistakes with {topic}! Save this reel for quick reference. 🚀"
+            engage = "[Question tone] Which tip helps you most? Tell me below."
+            cta = f"[Direct eye contact] Want our checklist to {inp.objective.lower()}? DM 'GUIDE' now."
+            caption = f"{topic} — avoid these common mistakes and tighten your flow today. Save this reel."
+            hashtags = ["#ReelsTips", "#ShortFormVideo", "#CreatorGrowth", "#DigitalMarketing"]
+            ost = ["Stop Guessing", "3 Simple Fixes", "Save This Reel"]
+
+        elif is_tanglish:
+            hook_1 = f"[Curious tone] {topic} pathi innum ungalukku confusion irukka?"
+            hook_2 = f"[Direct eye contact] 90% per {topic}-la panra periya mistake enna theriyuma?"
+            hook_3 = f"[Stress] {topic}-la results varalaya? Neenga idhai check pannunga!"
+            ctx = "[Pause] Romba simple reason: Namma neraiya per basic steps-ah miss pannitu shortcuts thedurom."
+
+            body = [
+                "1. [Stress] First vishayam: Neenga unga customer problem-ah first 5 seconds-la clear-ah sollunga.",
+                "2. [Pause] Second vishayam: Outdated methods vidunga, mobile-friendly speed and clean flow fix pannunga.",
+                "3. [Slow down] Third vishayam: Weekly data paarthu, enna work aagudho adhai mattum consistent-ah continue pannunga.",
+            ]
+            if dur >= 45:
+                body.append(
+                    "4. [Curious tone] Fourth vishayam: Ungalukku varra real questions-ah note panni, adha content-ah mathunga."
+                )
+                body.append(
+                    "5. [Pause] Fifth vishayam: Namma audience trust build aana dhaan inquiry natural-ah varum."
+                )
+            if dur >= 60:
+                body.append(
+                    "6. [Slow down] Sixth vishayam: Official rules and verified facts mattum check panni decision edunga."
+                )
+                body.append(
+                    "7. [Stress] Seventh vishayam: Oru clarity checklist vachukittu ovvoru step-ah track pannunga."
+                )
+
+            engage = f"[Question tone] Neenga {topic}-la enna challenge face panreenga? Comment-la sollunga."
+            cta = f"[Direct eye contact] {inp.objective.capitalize()}-ku clean checklist venumna, 'REEL' nu DM pannunga!"
+            caption = f"{topic} — avoid these costly mistakes and fix your flow today. Save this reel!"
             hashtags = ["#TamilReels", "#TamilCreators", "#DigitalTamil", "#TamilBusiness", "#QuickTips"]
-            ost = [f"{topic[:25]} Mistakes", "3 Key Rules", "Save This Reel"]
+            ost = [f"{topic[:25]} Mistakes", "3 Simple Fixes", "Save This Reel"]
 
-        else:  # Spoken Tamil Script
-            hook_1 = f"{topic} பற்றி உங்களுக்கு இன்னும் குழப்பங்கள் உள்ளதா?"
-            hook_2 = f"{topic} குறித்து பெரும்பாலானவர்கள் செய்யும் முக்கியமான தவறு என்ன தெரியுமா?"
-            hook_3 = f"{topic} இல் சரியான பலன் கிடைக்கவில்லையா? இந்த காணொளியை பாருங்கள்!"
-            ctx = "காரணம் மிக எளிது: அடிப்படை விதிகளை கவனிக்காமல் குறுக்கு வழிகளை தேடுவதுதான் தோல்விக்கு காரணம்."
+        else:  # Natural Conversational Spoken Tamil Script (Zero Sen-Tamil, Respectful Neenga/Namma)
+            hook_1 = f"[Curious tone] {topic} பத்தி உங்களுக்கு குழப்பம் இருக்கா?"
+            hook_2 = f"[Direct eye contact] {topic}-ல நம்ம பண்ற பெரிய தப்பு தெரியுமா?"
+            hook_3 = f"[Stress] {topic}-ல ரிசல்ட் வரலையா? இதை பாருங்க!"
+            ctx = "[Pause] நம்ம அடிப்படை விஷயங்களை கவனிக்காம ஷார்ட்கட் தேடுறதுதான் காரணம்."
 
             body = [
-                "1. முதல் விதி: சரியான திட்டமிடல் மற்றும் தெளிவான இலக்கு மிக அவசியம்.",
-                "2. இரண்டாம் விதி: பழைய முறைகளை தவிர்த்து, நவீன உத்திகளை மட்டுமே பயன்படுத்த வேண்டும்.",
-                "3. மூன்றாம் விதி: தொடர்ச்சியான கண்காணிப்பு மற்றும் நேர்த்தியான உழைப்பு மட்டுமே வெற்றியை தரும்.",
+                "1. [Stress] முதல் விஷயம்: முதல் அஞ்சு செகண்ட்ல உங்க பாயிண்ட்டை தெளிவா சொல்லுங்க.",
+                "2. [Pause] இரண்டாவது: மொபைல்ல வேகமா ஓப்பன் ஆகுற மாதிரி மாத்துங்க.",
+                "3. [Slow down] மூணாவது: வாராவாரம் ரிசல்ட்ஸ் பார்த்து எது ஒர்க் ஆகுதோ அதை பண்ணுங்க.",
             ]
             if dur >= 45:
-                body.append("4. நான்காம் விதி: மக்களின் தேவைகளை அறிந்து தரமான சேவையை வழங்க வேண்டும்.")
+                body.append(
+                    "4. [Curious tone] நாலாவது: உங்க கஸ்டமர்ஸ் கேட்குற முக்கியமான சந்தேகங்களுக்கு உடனே நேரடியா தெளிவான பதில் குடுங்க."
+                )
+                body.append(
+                    "5. [Pause] அஞ்சாவது: நம்ம மேல உண்மையான நம்பிக்கை வந்தாதான் கஸ்டமர் தானா நம்மள தேடி வருவாங்க."
+                )
+                body.append(
+                    "6. [Slow down] ஆறாவது: ஒவ்வொரு வாரமும் உங்க பழைய கஸ்டமர் கிட்ட ஃபீட்பேக் கேட்டு சர்வீஸை மெరుగుப்படுத்துங்க."
+                )
             if dur >= 60:
-                body.append("5. ஐந்தாம் விதி: அதிகாரப்பூர்வ வழிகாட்டல்கள் மற்றும் உண்மை தகவல்களை மட்டுமே நம்புங்கள்.")
+                body.append(
+                    "7. [Slow down] ஏழாவது: எப்பவுமே அதிகாரப்பூர்வ வெப்சைட் தகவல்களை மட்டும் செக் பண்ணி சரியான முடிவு எடுங்க."
+                )
+                body.append(
+                    "8. [Stress] எட்டாவது: ஒரு எளிய செக்லிஸ்ட் வச்சு ஒவ்வொரு ஸ்டெப்பா கரெக்டா தவறாம ஃபாலோ பண்ணுங்க."
+                )
+                body.append(
+                    "9. [Pause] ஒன்பதாவது: சின்ன மாற்றம் கூட பெரிய வளர்ச்சி தரும், அதனால இன்னைக்கே இதை ஆரம்பிங்க."
+                )
 
-            engage = f"{topic} பற்றி உங்கள் கருத்து என்ன? கீழே உள்ள பகுதியில் பதிவிடுங்கள்."
-            cta = f"{inp.objective.capitalize()} குறித்து முழு விவரங்களை பெற, எங்கள் பக்கத்திற்கு 'REEL' என்று செய்தி அனுப்புங்கள்!"
-            caption = f"{topic} பற்றிய முக்கியமான தகவல்கள்! மறக்காமல் சேமித்து வைத்துக் கொள்ளுங்கள். 🚀"
+            engage = "[Question tone] இதுல எந்த விஷயம் நீங்க ட்ரை பண்ணிருக்கீங்க? கமெண்ட்ல சொல்லுங்க."
+            adapted_obj = adapt_objective_to_conversational_tamil(inp.objective)
+            if inp.tone == "Tamil":
+                cta = f"[Direct eye contact] {adapted_obj} கைடு வேணும்னா 'ரீல்'-னு மெசேஜ் அனுப்புங்க!"
+            else:
+                cta = f"[Direct eye contact] {adapted_obj} கைடு வேணும்னா 'REEL'-னு மெசேஜ் அனுப்புங்க!"
+            caption = f"{topic} பத்தின முக்கியமான தகவல்கள்! மறக்காம சேவ் பண்ணி வச்சுக்கோங்க."
             hashtags = ["#தமிழ்", "#தமிழ்த்தகவல்", "#தொழில்முனைவோர்", "#வழிகாட்டல்"]
-            ost = ["முக்கியமான தவறுகள்", "3 எளிய விதிகள்", "இன்றே தொடங்குங்கள்"]
+            ost = ["முக்கியமான தவறுகள்", "3 எளிய வழிகள்", "இன்றே தொடங்குங்க"]
 
         return {
             "hooks": [
-                {"text": hook_1, "type": "question", "is_recommended": False, "reason": "Direct engaging query"},
+                {"text": hook_1, "type": "question", "is_recommended": False, "reason": "Direct respectful query"},
                 {"text": hook_2, "type": "bold statement", "is_recommended": True, "reason": "High curiosity pattern interrupt"},
                 {"text": hook_3, "type": "pain-point", "is_recommended": False, "reason": "Direct relatable problem"},
             ],
@@ -161,40 +336,57 @@ class SimulationProvider:
 
     @staticmethod
     def get_hooks_fallback(inp: ScriptInput, draft: ScriptDraft) -> Dict[str, Any]:
-        """Generate 3 fresh hook options fallback."""
+        """Generate 3 fresh humanized, respectful hook options fallback."""
         topic = inp.topic.strip()
-        is_tanglish = "tanglish" in inp.tone.lower()
-        if is_tanglish:
-            h1 = f"Did you know this fatal mistake about {topic}?"
-            h2 = f"Stop doing {topic} the old way in 2024!"
-            h3 = f"Tired of zero results from {topic}? Watch this!"
+        tone_lower = inp.tone.strip().lower()
+        is_english = tone_lower == "english"
+        is_tanglish = "tanglish" in tone_lower
+        if is_english:
+            h1 = f"[Curious tone] Want to know the real mistake behind {topic}?"
+            h2 = f"[Direct eye contact] Stop scrolling if your {topic} results feel stuck."
+            h3 = f"[Stress] Most people overlook this simple {topic} fix every week."
+        elif is_tanglish:
+            h1 = f"[Curious tone] {topic} pathi ungalukku indha vishayam theriyuma?"
+            h2 = f"[Direct eye contact] Neenga innum {topic}-ah pazhaya style-la panreengala?"
+            h3 = f"[Stress] {topic}-la time waste aagudha? Indha simple change paarunga!"
         else:
-            h1 = f"{topic} பற்றி நீங்கள் செய்யக்கூடாத மிகப்பெரிய தவறு என்ன தெரியுமா?"
-            h2 = f"{topic} பழைய முறையில் செய்வதை உடனடியாக நிறுத்துங்கள்!"
-            h3 = f"{topic} இல் சிறந்த முடிவுகளை பெற இந்த புதிய முறையை பின்பற்றுங்கள்!"
+            h1 = f"[Curious tone] {topic} பத்தி உங்களுக்கு இந்த முக்கியமான விஷயம் தெரியுமா?"
+            h2 = f"[Direct eye contact] நீங்க இன்னும் {topic}-ஐ பழைய முறையில்தான் பண்றீங்களா?"
+            h3 = f"[Stress] {topic}-ல நேரமும் பணமும் வீணாகுதா? இந்த மாற்றத்தை பாருங்க!"
 
         return {
             "hooks": [
-                {"text": h1, "type": "question", "is_recommended": False, "reason": "Direct question"},
+                {"text": h1, "type": "question", "is_recommended": False, "reason": "Respectful curiosity question"},
                 {"text": h2, "type": "bold statement", "is_recommended": True, "reason": "Strong pattern interrupt"},
-                {"text": h3, "type": "pain-point", "is_recommended": False, "reason": "Direct solution promise"},
+                {"text": h3, "type": "pain-point", "is_recommended": False, "reason": "Direct relatable pain point"},
             ],
             "recommended_hook": h2,
         }
 
     @staticmethod
     def get_cta_fallback(inp: ScriptInput, draft: ScriptDraft) -> Dict[str, Any]:
-        """Generate 3 fresh CTA options fallback."""
+        """Generate 3 fresh respectful CTA options fallback."""
         obj = inp.objective
-        is_tanglish = "tanglish" in inp.tone.lower()
-        if is_tanglish:
-            c1 = f"{obj.capitalize()}-ku exclusive link inbox-la venumna, 'INFO' nu DM pannunga!"
-            c2 = f"Comment '{obj.upper()[:6]}' and I will send the direct access link to your inbox!"
-            c3 = f"Ready to take action? Check the link in our bio for complete {obj} details!"
+        tone_lower = inp.tone.strip().lower()
+        is_english = tone_lower == "english"
+        is_tanglish = "tanglish" in tone_lower
+        if is_english:
+            c1 = f"[Direct eye contact] Want our exact checklist to {obj.lower()}? DM 'INFO' right now."
+            c2 = "[Pause] Drop 'GUIDE' in the comments and our team will send it directly."
+            c3 = "[Slow down] Ready for your next step? Check the link in bio today."
+        elif is_tanglish:
+            c1 = f"[Direct eye contact] {obj.capitalize()}-ku exclusive checklist ungalukku venumna, 'INFO' nu DM pannunga!"
+            c2 = f"[Pause] Comment-la 'GUIDE' nu podunga, namma team direct-ah link anuppuvanga!"
+            c3 = f"[Slow down] Neenga next step eduka ready-na, bio link-ah check pannunga!"
         else:
-            c1 = f"{obj.capitalize()} தொடர்பான முழு வழிகாட்டி பெற, 'INFO' என்று செய்தி அனுப்புங்கள்!"
-            c2 = f"கீழே '{obj.upper()[:6]}' என்று பதிவிடுங்கள், நேரடி இணைப்பை அனுப்புகிறோம்!"
-            c3 = f"உடனடியாக தொடங்க எங்கள் பயோவில் உள்ள இணைப்பை சொடுக்குங்கள்!"
+            adapted_obj = adapt_objective_to_conversational_tamil(obj)
+            if inp.tone == "Tamil":
+                c1 = f"[Direct eye contact] {adapted_obj} முழு செக்லிஸ்ட் உங்களுக்கு வேணும்னா 'இன்ஃபோ'-னு மெசேஜ் அனுப்புங்க!"
+                c2 = "[Pause] கமெண்ட்ல 'கைடு'-னு போடுங்க, நம்ம டீம் நேரடியா லிங்க் அனுப்புவாங்க!"
+            else:
+                c1 = f"[Direct eye contact] {adapted_obj} முழு செக்லிஸ்ட் உங்களுக்கு வேணும்னா 'INFO'-னு மெசேஜ் அனுப்புங்க!"
+                c2 = "[Pause] கமெண்ட்ல 'GUIDE'-னு போடுங்க, நம்ம டீம் நேரடியா லிங்க் அனுப்புவாங்க!"
+            c3 = "[Slow down] நீங்க அடுத்த ஸ்டெப் எடுக்க தயாரா இருந்தா, பயோ லிங்க்கை செக் பண்ணுங்க!"
 
         return {
             "cta_options": [
@@ -207,8 +399,8 @@ class SimulationProvider:
 
     @staticmethod
     def get_quality_fallback(inp: ScriptInput, research: ResearchResult, draft: ScriptDraft) -> Dict[str, Any]:
-        """Generate clean 5-point quality check evaluation fallback."""
-        limits = WORD_COUNT_LIMITS.get(inp.duration, {"min": 60, "max": 75})
+        """Generate 7-criteria quality check evaluation fallback."""
+        limits = get_word_count_limits(inp.duration, inp.tone)
         actual_words = draft.calculate_word_count()
         fixes = []
         revised = {
@@ -219,18 +411,48 @@ class SimulationProvider:
             "cta": draft.cta,
         }
 
-        # Check duration calibration
-        is_tanglish = "tanglish" in inp.tone.lower()
+        tone_lower = inp.tone.strip().lower()
+        is_english = tone_lower == "english"
+        is_tanglish = "tanglish" in tone_lower
+        if len(draft.extract_modulation_cues()) < 2:
+            if "[Direct eye contact]" not in revised["hook"] and "[" not in revised["hook"]:
+                revised["hook"] = f"[Direct eye contact] {revised['hook']}"
+            if "[" not in revised["context"]:
+                revised["context"] = f"[Pause] {revised['context']}"
+            fixes.append("Added inline vocal modulation cues ([Direct eye contact], [Pause]) for natural delivery.")
+
         if actual_words < limits["min"]:
-            if is_tanglish:
-                revised["body_points"].append("Idhai correct panna mudiyum, consistent tracking and clear guidance maintain pannanum.")
+            if is_english:
+                filler_pool = [
+                    "[Slow down] You can fix this in minutes once you keep your weekly review simple and steady.",
+                    "[Pause] Real audience trust builds naturally when every short video answers one specific buyer question clearly.",
+                ]
+            elif is_tanglish:
+                filler_pool = [
+                    "[Slow down] Idhai neenga easy-ah correct pannalam, weekly track panni consistent-ah follow pannunga.",
+                    "[Pause] Namma regular-ah review panna mattumae customer trust and inquiry steady-ah grow aagum.",
+                ]
             else:
-                revised["body_points"].append("இதனை எளிதாக சரிசெய்ய முடியும், வழக்கமான கண்காணிப்பு மற்றும் தெளிவான வழிகாட்டலை பின்பற்றுங்கள்.")
+                filler_pool = [
+                    "[Slow down] இதை நீங்க ஈஸியா சரிசெய்யலாம், வாராவாரம் ட்ராக் பண்ணி கரெக்டா ஃபாலோ பண்ணுங்க.",
+                    "[Pause] நம்ம தொடர்ந்து ரிவ்யூ பண்ணும்போதுதான் கஸ்டமர் நம்பிக்கையும் விசாரணையும் சீரா உயரும்.",
+                ]
+            temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
+            idx = 0
+            while temp_draft.word_count < limits["min"] and idx < len(filler_pool):
+                revised["body_points"].append(filler_pool[idx])
+                temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
+                idx += 1
             fixes.append(f"Auto-expanded script to hit calibrated duration limit ({limits['min']}-{limits['max']} words).")
-            duration_note = f"Word count ({actual_words}w) auto-expanded to meet {limits['min']}-{limits['max']}w limit."
+            duration_note = f"Word count ({actual_words}w) auto-expanded to {temp_draft.word_count}w within {limits['min']}-{limits['max']}w limit."
         elif actual_words > limits["max"]:
-            fixes.append(f"Trimmed script filler words to fit inside {limits['min']}-{limits['max']} word limit.")
-            duration_note = f"Word count ({actual_words}w) trimmed into {limits['min']}-{limits['max']}w window."
+            # Trim excess body points if over the duration word window
+            temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
+            while temp_draft.word_count > limits["max"] and len(revised["body_points"]) > 2:
+                revised["body_points"].pop()
+                temp_draft = ScriptDraft(**{**draft.model_dump(), **revised})
+            fixes.append(f"Trimmed script filler points to fit inside {limits['min']}-{limits['max']} word limit.")
+            duration_note = f"Word count ({actual_words}w) trimmed to {temp_draft.word_count}w within {limits['min']}-{limits['max']}w window."
         else:
             duration_note = f"Word count ({actual_words}w) is calibrated within {limits['min']}-{limits['max']} words."
 
@@ -239,8 +461,31 @@ class SimulationProvider:
                 "unsupported_claims": {"status": "PASS", "notes": "All claims are mapped to verified research sources."},
                 "repetition": {"status": "PASS", "notes": "Each script segment presents distinct, non-repetitive ideas."},
                 "weak_cta": {"status": "PASS", "notes": f"CTA is action-oriented and specifically targets '{inp.objective}'."},
-                "unnatural_tamil": {"status": "PASS", "notes": "Phrasing is colloquial, natural, and free of bookish Senthamizh."},
+                "unnatural_tamil": {
+                    "status": "PASS",
+                    "notes": (
+                        "Natural conversational spoken English; zero corporate jargon or AI clichés."
+                        if is_english
+                        else "Phrasing is colloquial, natural, and free of bookish Senthamizh."
+                    ),
+                },
                 "duration_fit": {"status": "PASS", "notes": duration_note},
+                "respectful_and_cliche_free": {
+                    "status": "PASS",
+                    "notes": (
+                        "Direct single-narrator spoken English ('you'/'your'); zero AI clichés."
+                        if is_english
+                        else "Single-narrator respectful Neenga/Namma tone; zero AI clichés or disrespectful slang."
+                    ),
+                },
+                "tamil_integrity_and_modulation": {
+                    "status": "PASS",
+                    "notes": (
+                        "Spoken English flow and vocal modulation cues verified (Tamil checks skipped)."
+                        if is_english
+                        else "Clean Tamil word boundaries and inline vocal modulation cues verified."
+                    ),
+                },
             },
             "fixes_applied": fixes,
             "revised_script": revised,

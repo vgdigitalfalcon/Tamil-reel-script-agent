@@ -82,7 +82,7 @@ Activate the virtual environment:
 *(Or create and install dependencies afresh)*:
 ```bash
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\pip install -r requirements-dev.txt   # includes pytest; production uses requirements.txt
 ```
 
 ### 2. Configure API Keys

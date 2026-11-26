@@ -1,29 +1,64 @@
-"""Step 1: Research and Angle Selection Agent."""
+"""Step 1: Resilient Research, Reference URL Grounding, and Angle Selection Agent."""
 
+import asyncio
 import logging
 import re
-from typing import List
-from src.models import ScriptInput, ResearchResult, SourceItem
-from src.search_tool import run_research_queries
-from src.prompts import RESEARCH_SYSTEM_PROMPT
+from typing import Any, Dict, List, Optional
+
 from src.llm import LLMClient
+from src.models import ResearchResult, ScriptInput, SourceItem
+from src.prompts import RESEARCH_SYSTEM_PROMPT
+from src.search_tool import (
+    async_fetch_reference_url,
+    async_run_research_queries,
+    fetch_reference_url,
+    run_research_queries,
+)
 from src.simulation import SimulationProvider
 
 logger = logging.getLogger(__name__)
 
+_RATE_LIMIT_UNCERTAINTY = (
+    "Verification Needed: Live web search returned no snippets (rate-limited or offline); "
+    "verify any specific factual claims against official client or authoritative sources."
+)
+
+
+def _format_brand_dna(inp: ScriptInput) -> str:
+    """Format optional Client Brand DNA context for prompt injection."""
+    if not inp.brand_dna:
+        return ""
+    dna = inp.brand_dna
+    lines = ["CLIENT BRAND DNA:"]
+    if dna.client_name:
+        lines.append(f"- Brand/Client: {dna.client_name}")
+    if dna.industry:
+        lines.append(f"- Industry: {dna.industry}")
+    if dna.target_audience:
+        lines.append(f"- Target Audience: {dna.target_audience}")
+    if dna.brand_tone:
+        lines.append(f"- Brand Tone: {dna.brand_tone}")
+    if dna.forbidden_words:
+        lines.append(f"- Forbidden Words: {', '.join(dna.forbidden_words)}")
+    return "\n".join(lines) + "\n"
+
 
 class ResearchAgent:
-    """Executes live web search, extracts verified claims with URLs, and selects content angle."""
+    """Executes live web search + optional reference URL fetch with rate-limit fallback."""
 
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
+        self.last_usage: Dict[str, Any] = {}
 
     def _generate_search_queries(self, inp: ScriptInput) -> List[str]:
-        """Generate 3-5 targeted search queries for reputable sources."""
+        """Generate 3 targeted search queries capped at 8 core words."""
         t = inp.topic.strip()
-        # Clean leading question phrases to prevent over-constrained query syntax
-        cleaned = re.sub(r"^(why are|why do|why is|how to|what is|why|is|should|can|are)\s+", "", t, flags=re.IGNORECASE).rstrip("?")
-        # Keep core query focused (first 8 words max) to avoid search engine misses
+        cleaned = re.sub(
+            r"^(why are|why do|why is|how to|what is|why|is|should|can|are)\s+",
+            "",
+            t,
+            flags=re.IGNORECASE,
+        ).rstrip("?")
         words = cleaned.split()
         core_query = " ".join(words[:8]) if len(words) > 8 else cleaned
         return [
@@ -32,36 +67,59 @@ class ResearchAgent:
             f"{core_query} cost maintenance guide",
         ]
 
-    def execute(self, inp: ScriptInput) -> ResearchResult:
-        """Run web searches, extract verified facts, and pick content angle."""
-        queries = self._generate_search_queries(inp)
-        raw_results = run_research_queries(queries, max_per_query=3)
+    def _build_research_result(
+        self,
+        inp: ScriptInput,
+        queries: List[str],
+        raw_results: List[Dict[str, str]],
+        ref_item: Optional[Dict[str, str]],
+    ) -> ResearchResult:
+        """Synthesize search & reference snippets via LLM, with graceful rate-limit fallback."""
+        combined_results: List[Dict[str, str]] = []
+        if ref_item:
+            combined_results.append(ref_item)
+        combined_results.extend(raw_results)
 
-        # Format search snippets for LLM context
+        search_fallback_used = len(raw_results) == 0 and ref_item is None
+
         context_snippets = []
-        for i, item in enumerate(raw_results[:12], 1):
+        for i, item in enumerate(combined_results[:12], 1):
+            label = "[REF] " if ref_item and i == 1 else ""
             context_snippets.append(
-                f"[{i}] Title: {item.get('title')}\nURL: {item.get('url')}\nSnippet: {item.get('snippet')}\n"
+                f"[{i}] {label}Title: {item.get('title')}\nURL: {item.get('url')}\nSnippet: {item.get('snippet')}\n"
             )
-        formatted_context = "\n".join(context_snippets)
+
+        if context_snippets:
+            formatted_context = "\n".join(context_snippets)
+        else:
+            formatted_context = (
+                "NO LIVE SEARCH RESULTS AVAILABLE (rate-limited or offline).\n"
+                "Fall back to Client Brand DNA and conservative domain knowledge ONLY. "
+                "Flag claims as 'Verification Needed' in uncertainties and do NOT invent URLs."
+            )
+
+        brand_dna_block = _format_brand_dna(inp)
+        ref_line = f"Reference URL: {inp.reference_url}\n" if inp.reference_url else ""
 
         user_prompt = f"""Topic: {inp.topic}
 Audience: {inp.audience}
 Niche: {inp.niche}
 Objective: {inp.objective}
-
-LIVE SEARCH RESULTS:
+{ref_line}{brand_dna_block}
+LIVE SEARCH & REFERENCE RESULTS:
 {formatted_context}
 
-Please analyze these search results and output the research summary JSON strictly following the system prompt rules.
+Please analyze these results, extract everyday spoken audience pain points (no corporate jargon), and output the research summary JSON strictly following the system prompt rules.
 """
 
-        fallback = SimulationProvider.get_research_fallback(inp, raw_results)
+        fallback = SimulationProvider.get_research_fallback(inp, combined_results)
+        self.llm.last_usage = {}
         data = self.llm.generate_json(
             system_prompt=RESEARCH_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             default_fallback=fallback,
         )
+        self.last_usage = dict(getattr(self.llm, "last_usage", {}) or {})
 
         source_items = [
             SourceItem(
@@ -74,6 +132,10 @@ Please analyze these search results and output the research summary JSON strictl
             if s.get("url")
         ]
 
+        uncertainties = list(data.get("uncertainties", []))
+        if search_fallback_used and _RATE_LIMIT_UNCERTAINTY not in uncertainties:
+            uncertainties.append(_RATE_LIMIT_UNCERTAINTY)
+
         return ResearchResult(
             topic=inp.topic,
             queries_run=queries,
@@ -82,5 +144,34 @@ Please analyze these search results and output the research summary JSON strictl
             chosen_angle=data.get("chosen_angle", ""),
             angle_reason=data.get("angle_reason", ""),
             sources=source_items,
-            uncertainties=data.get("uncertainties", []),
+            uncertainties=uncertainties,
+            search_fallback_used=search_fallback_used,
+        )
+
+    def execute(self, inp: ScriptInput) -> ResearchResult:
+        """Synchronously run web searches, optional reference URL fetch, and LLM synthesis."""
+        queries = self._generate_search_queries(inp)
+        raw_results = run_research_queries(queries, max_per_query=3)
+        ref_item = fetch_reference_url(inp.reference_url) if inp.reference_url else None
+        return self._build_research_result(inp, queries, raw_results, ref_item)
+
+    async def aexecute(self, inp: ScriptInput) -> ResearchResult:
+        """Non-blocking async research execution offloading search & LLM calls off the event loop."""
+        queries = self._generate_search_queries(inp)
+        search_coro = async_run_research_queries(queries, max_per_query=3)
+        if inp.reference_url:
+            raw_results, ref_item = await asyncio.gather(
+                search_coro,
+                async_fetch_reference_url(inp.reference_url),
+            )
+        else:
+            raw_results = await search_coro
+            ref_item = None
+
+        return await asyncio.to_thread(
+            self._build_research_result,
+            inp,
+            queries,
+            raw_results,
+            ref_item,
         )

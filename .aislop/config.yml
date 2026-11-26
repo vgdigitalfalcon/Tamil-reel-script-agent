@@ -1,0 +1,7 @@
+imports:
+  provided:
+    - psycopg2
+    - ddgs
+
+exclude:
+  - php/assets/**

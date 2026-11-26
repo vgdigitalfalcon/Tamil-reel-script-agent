@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScriptFalcon | VG Digital Falcon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Tamil:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,400,0,0" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" aria-label="Studio Controls">
+      <div class="sidebar-scroll">
+        <!-- 1. MODE -->
+        <section class="side-group">
+          <h2 class="side-label">1. Mode</h2>
+          <div class="segmented" role="group" aria-label="Execution Mode">
+            <button type="button" class="seg-btn active" data-mode="standalone">Standalone</button>
+            <button type="button" class="seg-btn" data-mode="crm">CRM Client</button>
+          </div>
+          <div id="crmFields" class="crm-fields hidden">
+            <label class="field-label" for="clientIdInput">Client ID</label>
+            <input id="clientIdInput" class="input" type="text" value="vg_demo_clinic" placeholder="e.g., vg_demo_clinic" />
+            <label class="field-label" for="crmTokenInput">Employee Bearer Token</label>
+            <input id="crmTokenInput" class="input" type="password" placeholder="Paste employee JWT token" />
+          </div>
+        </section>
+
+        <hr class="side-divider" />
+
+        <!-- 2. TOPIC -->
+        <section class="side-group">
+          <h2 class="side-label">2. Topic</h2>
+          <label class="field-label" for="topicInput">Primary Video Topic</label>
+          <textarea id="topicInput" class="textarea" rows="3" placeholder="Enter a topic in English, Tamil, or Tanglish..."></textarea>
+
+          <label class="field-label" for="objectiveInput">Conversion Objective</label>
+          <input id="objectiveInput" class="input" type="text" value="Get agency leads" placeholder="e.g., Get agency leads, book demo" />
+
+          <details class="side-details">
+            <summary>
+              <span class="material-symbols-rounded">tune</span>
+              <span>Audience &amp; Reference URL</span>
+            </summary>
+            <div class="details-body">
+              <label class="field-label" for="audienceInput">Target Audience</label>
+              <input id="audienceInput" class="input" type="text" value="Small business owners &amp; Tamil entrepreneurs" />
+              <label class="field-label" for="nicheInput">Niche / Category</label>
+              <input id="nicheInput" class="input" type="text" value="Business &amp; Technology" />
+              <label class="field-label" for="refUrlInput">Client Reference URL (Optional)</label>
+              <input id="refUrlInput" class="input" type="url" placeholder="https://clientwebsite.com/offer" />
+            </div>
+          </details>
+        </section>
+
+        <hr class="side-divider" />
+
+        <!-- 3. FORMAT -->
+        <section class="side-group">
+          <h2 class="side-label">3. Format</h2>
+          <label class="field-label" for="platformSelect">Platform</label>
+          <select id="platformSelect" class="select">
+            <option value="Instagram Reels" selected>Instagram Reels</option>
+            <option value="YouTube Shorts">YouTube Shorts</option>
+            <option value="LinkedIn Video">LinkedIn Video</option>
+          </select>
+
+          <label class="field-label">Duration</label>
+          <div class="segmented" role="group" aria-label="Target Duration">
+            <button type="button" class="seg-btn active" data-duration="30">30s</button>
+            <button type="button" class="seg-btn" data-duration="45">45s</button>
+            <button type="button" class="seg-btn" data-duration="60">60s</button>
+          </div>
+          <div id="pacingTargetHint" class="helper-text">Target: 60–75 words (~2.2 w/s)</div>
+
+          <label class="field-label">Language</label>
+          <div class="segmented segmented-stack" role="group" aria-label="Script Language">
+            <button type="button" class="seg-btn active" data-tone="Tanglish">Tanglish</button>
+            <button type="button" class="seg-btn" data-tone="conversational spoken Tamil">Spoken Tamil</button>
+            <button type="button" class="seg-btn" data-tone="Tamil">Tamil Script</button>
+            <button type="button" class="seg-btn" data-tone="English">English</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- STICKY FOOTER CTA -->
+      <div class="sidebar-footer">
+        <button id="generateBtn" type="button" class="btn-primary">
+          <span class="material-symbols-rounded">bolt</span>
+          <span id="generateBtnText">Generate Script</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="workspace">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-name">ScriptFalcon</span>
+          <span class="brand-sub">VG Digital Falcon</span>
+        </div>
+        <div class="status-row">
+          <span class="pill" id="providerPill">
+            <span class="dot dot-sim" id="providerDot"></span>
+            <span id="providerLabel">Provider: loading...</span>
+          </span>
+          <span class="pill">
+            <span class="dot dot-live"></span>
+            <span>7-Criteria Audit</span>
+          </span>
+          <span class="pill">
+            <span class="dot dot-live"></span>
+            <span>Single-Narrator &amp; Tamil Lock</span>
+          </span>
+        </div>
+      </header>
+
+      <div id="errorBanner" class="alert-banner hidden" role="alert">
+        <span class="material-symbols-rounded">error</span>
+        <span id="errorMessage"></span>
+      </div>
+
+      <!-- EMPTY STATE -->
+      <section id="emptyState">
+        <div class="hero-wrap">
+          <div class="hero-glow" aria-hidden="true"></div>
+          <div class="hero-content">
+            <h1 class="hero-title">
+              Camera-ready Tamil &amp; Tanglish <span class="hero-highlight">reel scripts</span>.
+            </h1>
+            <p class="hero-sub">
+              Research-backed, single-narrator scripts calibrated to 2.2 words/sec with inline vocal cues and 7-criteria Tamil integrity checks.
+            </p>
+          </div>
+        </div>
+
+        <h2 class="section-title">Start from a preset</h2>
+        <div class="grid-3" id="presetGrid">
+          <button type="button" class="preset-card" data-preset="0">
+            <div class="preset-card-top">
+              <span class="preset-title">Why websites fail to get leads</span>
+              <span class="material-symbols-rounded preset-arrow">arrow_outward</span>
+            </div>
+            <div class="preset-meta">Instagram Reels &middot; 30s &middot; Tanglish</div>
+          </button>
+
+          <button type="button" class="preset-card" data-preset="1">
+            <div class="preset-card-top">
+              <span class="preset-title">SEO mistakes &amp; ranking myths</span>
+              <span class="material-symbols-rounded preset-arrow">arrow_outward</span>
+            </div>
+            <div class="preset-meta">Instagram Reels &middot; 45s &middot; Tanglish</div>
+          </button>
+
+          <button type="button" class="preset-card" data-preset="2">
+            <div class="preset-card-top">
+              <span class="preset-title">Germany Opportunity Card guide</span>
+              <span class="material-symbols-rounded preset-arrow">arrow_outward</span>
+            </div>
+            <div class="preset-meta">Instagram Reels &middot; 60s &middot; Spoken Tamil</div>
+          </button>
+        </div>
+
+        <h2 class="section-title">How it works</h2>
+        <div class="grid-3">
+          <div class="surface-card step-card">
+            <div class="step-head">
+              <span class="material-symbols-rounded">edit_note</span>
+              <span>1. Topic</span>
+            </div>
+            <p class="muted-copy">Pick a preset or enter any topic, audience, and optional client URL.</p>
+          </div>
+          <div class="surface-card step-card">
+            <div class="step-head">
+              <span class="material-symbols-rounded">bolt</span>
+              <span>2. Generate</span>
+            </div>
+            <p class="muted-copy">Live web citations feed a single-narrator script with vocal cues.</p>
+          </div>
+          <div class="surface-card step-card">
+            <div class="step-head">
+              <span class="material-symbols-rounded">verified_user</span>
+              <span>3. 7-Criteria Audit</span>
+            </div>
+            <p class="muted-copy">Checks Tamil word integrity, pacing fit, and zero AI clich&eacute;s.</p>
+          </div>
+        </div>
+
+        <h2 class="section-title">Output preview</h2>
+        <div class="skeleton-card" aria-hidden="true">
+          <div class="skeleton-row">
+            <div class="skeleton-tag">Hook</div>
+            <div class="skeleton-sample">
+              <span class="mod-cue">Direct eye contact</span> உங்க வெப்சைட் இருந்தும் ஏன் leads வரமாட்டேங்குது தெரியுமா?
+            </div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-tag">Body</div>
+            <div class="skeleton-bar" style="width: 88%;"></div>
+            <div class="skeleton-bar" style="width: 74%;"></div>
+            <div class="skeleton-bar" style="width: 60%;"></div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-tag">CTA</div>
+            <div class="skeleton-bar" style="width: 50%;"></div>
+          </div>
+        </div>
+
+        <div id="recentSection" class="hidden">
+          <h2 class="section-title">Recent scripts</h2>
+          <div id="recentList" class="recent-list"></div>
+        </div>
+
+        <details class="guardrails-details">
+          <summary>
+            <span class="material-symbols-rounded">rule</span>
+            <span>Pacing &amp; Guardrails Reference</span>
+          </summary>
+          <div class="guardrails-grid">
+            <div>
+              <strong>Spoken Word Calibration (~2.2 words/sec)</strong>
+              <ul>
+                <li>30 seconds: 60 – 75 spoken words</li>
+                <li>45 seconds: 95 – 110 spoken words</li>
+                <li>60 seconds: 125 – 145 spoken words</li>
+              </ul>
+            </div>
+            <div>
+              <strong>Humanized Tamil Guardrails</strong>
+              <ul>
+                <li>Single narrator (<em>Neenga / Namma</em>), zero 2-person skits</li>
+                <li>Zero AI clich&eacute;s or disrespectful third-person slang</li>
+                <li>3,000-token buffer + Tamil <em>uyirmei</em> Unicode split repair</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- RESULT STATE -->
+      <section id="resultState" class="hidden">
+        <div class="result-toolbar">
+          <div id="auditBadges" class="badge-strip"></div>
+          <div class="toolbar-actions">
+            <button id="backBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">arrow_back</span>
+              <span>New</span>
+            </button>
+            <button id="copyScriptBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">content_copy</span>
+              <span id="copyBtnLabel">Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tabs-bar" role="tablist">
+          <button type="button" class="tab-btn active" data-tab="teleprompter">
+            <span class="material-symbols-rounded">mic</span>
+            <span>Teleprompter</span>
+          </button>
+          <button type="button" class="tab-btn" data-tab="research">
+            <span class="material-symbols-rounded">search</span>
+            <span>Research</span>
+          </button>
+          <button type="button" class="tab-btn" data-tab="audit">
+            <span class="material-symbols-rounded">verified_user</span>
+            <span>Quality Audit</span>
+          </button>
+          <button type="button" class="tab-btn" data-tab="export">
+            <span class="material-symbols-rounded">download</span>
+            <span>Export</span>
+          </button>
+        </div>
+
+        <!-- TAB 1: TELEPROMPTER -->
+        <div id="tab-teleprompter" class="tab-panel active">
+          <div class="teleprompter-card">
+            <div class="tp-section">
+              <div class="tp-label">Hook</div>
+              <div id="tpHook" class="tp-text"></div>
+            </div>
+            <div class="tp-section">
+              <div class="tp-label">Body</div>
+              <div id="tpContext" class="tp-subtext"></div>
+              <div id="tpBody" class="tp-text"></div>
+              <div id="tpEngagement" class="tp-subtext"></div>
+            </div>
+            <div class="tp-section">
+              <div class="tp-label">CTA</div>
+              <div id="tpCta" class="tp-text tp-strong"></div>
+            </div>
+          </div>
+
+          <h3 class="section-title">Hook Alternatives</h3>
+          <div id="hookGrid" class="grid-3"></div>
+
+          <div class="regen-bar">
+            <button id="regenHooksBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">refresh</span>
+              <span>Regenerate Hooks</span>
+            </button>
+            <input id="regenCtaObjective" class="input" type="text" placeholder="Custom CTA objective..." />
+            <button id="regenCtaBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">refresh</span>
+              <span>Regenerate CTA</span>
+            </button>
+          </div>
+          <div id="ctaOptionsWrap" class="hidden">
+            <h3 class="section-title">CTA Alternatives</h3>
+            <ul id="ctaOptionsList" class="clean-list"></ul>
+          </div>
+
+          <div class="grid-2">
+            <div>
+              <h3 class="section-title">On-Screen Text</h3>
+              <div id="onScreenWrap" class="chips-wrap"></div>
+            </div>
+            <div>
+              <h3 class="section-title">Caption &amp; Hashtags</h3>
+              <div class="surface-card">
+                <p id="captionText" class="muted-copy"></p>
+                <code id="hashtagsText" class="mono-code"></code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: RESEARCH -->
+        <div id="tab-research" class="tab-panel">
+          <div class="surface-card card-active">
+            <div class="card-kicker">Chosen Content Angle</div>
+            <div id="chosenAngleText" class="angle-title"></div>
+            <div id="angleReasonText" class="muted-copy"></div>
+          </div>
+
+          <div class="grid-2">
+            <div>
+              <h3 class="section-title">Verified Findings</h3>
+              <ul id="findingsList" class="clean-list"></ul>
+            </div>
+            <div>
+              <h3 class="section-title">Audience Pain Points</h3>
+              <ul id="painPointsList" class="clean-list"></ul>
+            </div>
+          </div>
+
+          <h3 class="section-title">Sources</h3>
+          <div id="sourcesList"></div>
+          <div id="uncertaintiesBox" class="alert-banner warn hidden">
+            <span class="material-symbols-rounded">warning</span>
+            <div id="uncertaintiesText"></div>
+          </div>
+        </div>
+
+        <!-- TAB 3: QUALITY AUDIT -->
+        <div id="tab-audit" class="tab-panel">
+          <div id="auditGrid" class="grid-2"></div>
+          <div id="fixesBox" class="surface-card hidden">
+            <div class="card-kicker">Auto-Corrections Applied</div>
+            <ul id="fixesList" class="clean-list"></ul>
+          </div>
+        </div>
+
+        <!-- TAB 4: EXPORT -->
+        <div id="tab-export" class="tab-panel">
+          <div class="grid-3">
+            <button id="dlMarkdownBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">description</span>
+              <span>Download Markdown</span>
+            </button>
+            <button id="dlJsonBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">data_object</span>
+              <span>Download State JSON</span>
+            </button>
+            <button id="dlClipFalconBtn" type="button" class="btn-secondary">
+              <span class="material-symbols-rounded">movie</span>
+              <span>ClipFalcon Payload</span>
+            </button>
+          </div>
+          <h3 class="section-title">Raw Markdown</h3>
+          <pre id="rawMarkdownPre" class="code-pre"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -4,3 +4,12 @@ __pycache__/
 .env
 .DS_Store
 *.log
+frontend-react/node_modules/
+php/assets/
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.sqlite3
+.pytest_cache/
+.ruff_cache/

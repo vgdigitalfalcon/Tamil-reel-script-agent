@@ -13,6 +13,10 @@ from src.config import (
     ANTHROPIC_MODEL,
     OPENAI_MODEL,
     GEMINI_MODEL,
+    MAX_OUTPUT_TOKENS,
+    LLM_TEMPERATURE,
+    GEMINI_THINKING_LEVEL,
+    calculate_cost_inr,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,16 +62,26 @@ def clean_json_response(raw_text: str) -> Dict[str, Any]:
     raise ValueError(f"Failed to parse LLM response as JSON. Output was:\n{raw_text}")
 
 
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count conservatively (~4 chars/token; higher density for Tamil Unicode)."""
+    if not text:
+        return 0
+    tamil_chars = sum(1 for ch in text if "\u0B80" <= ch <= "\u0BFF")
+    other_chars = len(text) - tamil_chars
+    return max(1, (tamil_chars // 2) + (other_chars // 4))
+
+
 class LLMClient:
-    """Unified LLM caller that routes to Gemini, Anthropic, or OpenAI/Groq."""
+    """Unified LLM caller that routes to Gemini, Anthropic, OpenAI/Groq, or simulation."""
 
     def __init__(self, provider: Optional[str] = None):
         self.provider = (provider or LLM_PROVIDER).lower()
         self.gemini_client = None
         self.anthropic_client = None
         self.openai_client = None
+        self.last_usage: Dict[str, Any] = {}
 
-        # 1. Google Gemini (Ideal for free prototype)
+        # 1. Google Gemini
         if GEMINI_API_KEY and self.provider in ("gemini", "auto"):
             try:
                 from google import genai
@@ -77,7 +91,7 @@ class LLMClient:
                 try:
                     import google.generativeai as genai
                     genai.configure(api_key=GEMINI_API_KEY)
-                    self.gemini_client = genai.GenerativeModel(GEMINI_MODEL or "gemini-3.8-flash")
+                    self.gemini_client = genai.GenerativeModel(GEMINI_MODEL or "gemini-3.5-flash-lite")
                     self.provider = "gemini"
                 except Exception as e:
                     logger.warning(f"Could not initialize Gemini: {e}")
@@ -97,7 +111,7 @@ class LLMClient:
         if not self.gemini_client and not self.anthropic_client and OPENAI_API_KEY and self.provider in ("openai", "groq", "auto"):
             try:
                 import openai
-                base_url = os.getenv("OPENAI_BASE_URL", None)  # Allows Groq endpoint: https://api.groq.com/openai/v1
+                base_url = os.getenv("OPENAI_BASE_URL", None)
                 self.openai_client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url=base_url)
                 self.provider = "openai"
             except Exception as e:
@@ -108,21 +122,52 @@ class LLMClient:
                 logger.info("No active API keys found; activating smart simulation generator.")
             self.provider = "simulation"
 
-    def generate_json(
-        self, system_prompt: str, user_prompt: str, default_fallback: Optional[Dict[str, Any]] = None
+    def _record_usage(
+        self,
+        model_used: str,
+        input_tokens: int,
+        output_tokens: int,
+        finish_reason: str = "STOP",
     ) -> Dict[str, Any]:
-        """Invoke LLM and return parsed JSON object."""
+        """Store and return normalized usage and cost metadata."""
+        total_tokens = max(0, input_tokens) + max(0, output_tokens)
+        cost_inr = calculate_cost_inr(model_used, input_tokens, output_tokens)
+        is_truncated = str(finish_reason).upper() in ("MAX_TOKENS", "LENGTH", "MAX_TOKEN")
+        if is_truncated:
+            logger.warning(f"LLM response truncated ({finish_reason}) on model {model_used}.")
+        usage = {
+            "model_used": model_used,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost_inr": cost_inr,
+            "finish_reason": str(finish_reason),
+            "is_truncated": is_truncated,
+        }
+        self.last_usage = usage
+        return usage
+
+    def generate_json_with_meta(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        default_fallback: Optional[Dict[str, Any]] = None,
+        max_output_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Invoke LLM and return parsed JSON along with token/cost/truncation metadata."""
+        tokens_limit = max_output_tokens or MAX_OUTPUT_TOKENS
+        temp = LLM_TEMPERATURE if temperature is None else temperature
+
         if self.provider == "gemini" and self.gemini_client:
             combined_prompt = f"{system_prompt}\n\nUSER REQUEST:\n{user_prompt}\n\nOutput strictly valid JSON only."
             candidate_models = [
                 GEMINI_MODEL,
-                "gemini-3.8-flash",
-                "gemini-3.6-flash",
                 "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite",
                 "gemini-2.5-flash",
                 "gemini-2.5-flash-lite",
-                "gemma-4",
+                "gemini-3.8-flash",
+                "gemini-3.6-flash",
             ]
             seen_models = set()
             models_to_try = [m for m in candidate_models if m and not (m in seen_models or seen_models.add(m))]
@@ -131,32 +176,71 @@ class LLMClient:
             for model_name in models_to_try:
                 try:
                     if hasattr(self.gemini_client, "models"):  # google-genai SDK
-                        response = self.gemini_client.models.generate_content(
-                            model=model_name,
-                            contents=combined_prompt,
+                        from google.genai import types
+                        thinking_cfg = None
+                        if GEMINI_THINKING_LEVEL and hasattr(types, "ThinkingConfig"):
+                            try:
+                                thinking_cfg = types.ThinkingConfig(thinking_level=GEMINI_THINKING_LEVEL)
+                            except Exception:
+                                thinking_cfg = None
+                        gen_config = types.GenerateContentConfig(
+                            temperature=temp,
+                            max_output_tokens=tokens_limit,
+                            thinking_config=thinking_cfg,
                         )
-                        return clean_json_response(response.text)
+                        try:
+                            response = self.gemini_client.models.generate_content(
+                                model=model_name,
+                                contents=combined_prompt,
+                                config=gen_config,
+                            )
+                        except Exception as cfg_err:
+                            # Fallback without thinking_config if model rejects thinking_level
+                            if thinking_cfg is not None and "thinking" in str(cfg_err).lower():
+                                response = self.gemini_client.models.generate_content(
+                                    model=model_name,
+                                    contents=combined_prompt,
+                                    config=types.GenerateContentConfig(
+                                        temperature=temp,
+                                        max_output_tokens=tokens_limit,
+                                    ),
+                                )
+                            else:
+                                raise
+                        usage_meta = getattr(response, "usage_metadata", None)
+                        in_tok = getattr(usage_meta, "prompt_token_count", None) or _estimate_tokens(combined_prompt)
+                        out_tok = getattr(usage_meta, "candidates_token_count", None) or _estimate_tokens(response.text or "")
+                        candidates = getattr(response, "candidates", None) or []
+                        finish_reason = getattr(candidates[0], "finish_reason", "STOP") if candidates else "STOP"
+                        data = clean_json_response(response.text)
+                        meta = self._record_usage(model_name, int(in_tok), int(out_tok), str(finish_reason))
+                        return {"data": data, **meta}
                     else:  # google.generativeai legacy SDK
-                        response = self.gemini_client.generate_content(combined_prompt)
-                        return clean_json_response(response.text)
+                        response = self.gemini_client.generate_content(
+                            combined_prompt,
+                            generation_config={"temperature": temp, "max_output_tokens": tokens_limit},
+                        )
+                        in_tok = _estimate_tokens(combined_prompt)
+                        out_tok = _estimate_tokens(response.text or "")
+                        data = clean_json_response(response.text)
+                        meta = self._record_usage(model_name, in_tok, out_tok, "STOP")
+                        return {"data": data, **meta}
                 except Exception as e:
                     last_error = e
                     err_str = str(e)
-                    if "404" in err_str or "NOT_FOUND" in err_str:
-                        continue
-                    elif "503" in err_str or "UNAVAILABLE" in err_str:
+                    if "503" in err_str or "UNAVAILABLE" in err_str:
                         logger.warning(f"Model {model_name} temporarily busy (503). Trying alternative model...")
-                        continue
                     elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                         logger.warning(f"Model {model_name} rate limited (429). Trying alternative model...")
-                        continue
-                    else:
-                        continue
+                    continue
 
             if last_error:
                 logger.error(f"Gemini API call failed: {last_error}")
-            if default_fallback:
-                return default_fallback
+            if default_fallback is not None:
+                in_tok = _estimate_tokens(combined_prompt)
+                out_tok = _estimate_tokens(json.dumps(default_fallback, ensure_ascii=False))
+                meta = self._record_usage("simulation", in_tok, out_tok, "FALLBACK")
+                return {"data": default_fallback, **meta}
             if last_error:
                 raise last_error
 
@@ -164,37 +248,81 @@ class LLMClient:
             try:
                 response = self.anthropic_client.messages.create(
                     model=ANTHROPIC_MODEL,
-                    max_tokens=2500,
+                    max_tokens=tokens_limit,
+                    temperature=temp,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
-                return clean_json_response(response.content[0].text)
+                usage = getattr(response, "usage", None)
+                in_tok = getattr(usage, "input_tokens", None) or _estimate_tokens(system_prompt + user_prompt)
+                out_tok = getattr(usage, "output_tokens", None) or _estimate_tokens(response.content[0].text)
+                finish_reason = getattr(response, "stop_reason", "end_turn")
+                data = clean_json_response(response.content[0].text)
+                meta = self._record_usage(ANTHROPIC_MODEL, int(in_tok), int(out_tok), str(finish_reason))
+                return {"data": data, **meta}
             except Exception as e:
                 logger.error(f"Anthropic API call failed: {e}")
-                if default_fallback:
-                    return default_fallback
+                if default_fallback is not None:
+                    in_tok = _estimate_tokens(system_prompt + user_prompt)
+                    out_tok = _estimate_tokens(json.dumps(default_fallback, ensure_ascii=False))
+                    meta = self._record_usage("simulation", in_tok, out_tok, "FALLBACK")
+                    return {"data": default_fallback, **meta}
                 raise
 
         elif self.provider in ("openai", "groq") and self.openai_client:
             try:
                 response = self.openai_client.chat.completions.create(
                     model=OPENAI_MODEL,
+                    temperature=temp,
+                    max_tokens=tokens_limit,
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
                 )
-                return clean_json_response(response.choices[0].message.content)
+                usage = getattr(response, "usage", None)
+                in_tok = getattr(usage, "prompt_tokens", None) or _estimate_tokens(system_prompt + user_prompt)
+                out_tok = getattr(usage, "completion_tokens", None) or _estimate_tokens(
+                    response.choices[0].message.content or ""
+                )
+                finish_reason = getattr(response.choices[0], "finish_reason", "stop")
+                data = clean_json_response(response.choices[0].message.content)
+                meta = self._record_usage(OPENAI_MODEL, int(in_tok), int(out_tok), str(finish_reason))
+                return {"data": data, **meta}
             except Exception as e:
                 logger.error(f"OpenAI/Groq API call failed: {e}")
-                if default_fallback:
-                    return default_fallback
+                if default_fallback is not None:
+                    in_tok = _estimate_tokens(system_prompt + user_prompt)
+                    out_tok = _estimate_tokens(json.dumps(default_fallback, ensure_ascii=False))
+                    meta = self._record_usage("simulation", in_tok, out_tok, "FALLBACK")
+                    return {"data": default_fallback, **meta}
                 raise
 
         elif self.provider == "simulation":
-            if default_fallback:
-                return default_fallback
+            if default_fallback is not None:
+                in_tok = _estimate_tokens(system_prompt + user_prompt)
+                out_tok = _estimate_tokens(json.dumps(default_fallback, ensure_ascii=False))
+                meta = self._record_usage("simulation", in_tok, out_tok, "SIMULATION")
+                return {"data": default_fallback, **meta}
             raise RuntimeError("Simulation provider requested but no fallback handler was provided.")
 
         raise RuntimeError(f"Unsupported or unconfigured LLM provider: {self.provider}")
+
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        default_fallback: Optional[Dict[str, Any]] = None,
+        max_output_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Invoke LLM and return parsed JSON object (records metadata on self.last_usage)."""
+        result = self.generate_json_with_meta(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            default_fallback=default_fallback,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+        )
+        return result["data"]

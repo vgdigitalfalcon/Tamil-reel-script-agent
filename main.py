@@ -18,7 +18,7 @@ def run_cli():
     )
     parser.add_argument("--topic", type=str, help="Primary topic for the reel")
     parser.add_argument("--duration", type=int, choices=[30, 45, 60], default=30, help="Target duration (sec)")
-    parser.add_argument("--tone", type=str, default="Tanglish", choices=["Tanglish", "conversational spoken Tamil", "Tamil"])
+    parser.add_argument("--tone", type=str, default="Tanglish", choices=["Tanglish", "conversational spoken Tamil", "Tamil", "English"])
     parser.add_argument("--objective", type=str, default="awareness", help="Marketing objective")
     parser.add_argument("--audience", type=str, default=None, help="Target audience description")
     parser.add_argument("--niche", type=str, default=None, help="Niche / industry category")
